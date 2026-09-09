@@ -2076,14 +2076,19 @@ export default function App() {
           const remaining = installmentRemaining(ins);
           if (remaining > 0) totalRemainingUnpaid += remaining;
 
-          // FIXED per user request: total = sum of PAID installments only in fiscal period
-          // This matches user's expectation: 210 Maria + 130 Yaqub = 340 paid
+          // FINAL FIX per user request:
+          // - dueThisMonth = PAID only (340 = 210 Maria + 130 Yaqub)
+          // - dueThisMonthItems = ALL items in period for detailed breakdown
+          // - dueThisMonthUnpaid = unpaid remaining
           if (ins.month >= selectedMonthStart && ins.month <= selectedMonthEnd) {
+            // Track all items in period
+            dueThisMonthItems.push({ ...ins, paidAmount, remaining, yearId: y.id, yearLabel: y.label, stage: y.stage, isPaid: paidAmount > 0 });
             if (paidAmount > 0) {
               dueThisMonth += paidAmount;
-              dueThisMonthItems.push({ ...ins, paidAmount, remaining, yearId: y.id, yearLabel: y.label, stage: y.stage, isPaid: true });
             }
-            if (remaining > 0) dueThisMonthPaid = false;
+            if (remaining > 0) {
+              dueThisMonthPaid = false;
+            }
           }
 
           if (remaining > 0 && ins.month > selectedMonthEnd) {
@@ -2097,8 +2102,8 @@ export default function App() {
       return { ...c, years, dueThisMonth, dueThisMonthUnpaid: dueThisMonth, dueThisMonthPaid, dueThisMonthItems, nextDue, totalRemainingUnpaid };
     });
 
-    const totalMonthly = list.reduce((sum, c) => sum + c.dueThisMonth, 0);
-    const totalMonthlyUnpaid = list.reduce((sum, c) => sum + c.dueThisMonthItems.reduce((s, it) => s + it.remaining, 0), 0);
+    const totalMonthly = list.reduce((sum, c) => sum + c.dueThisMonth, 0); // PAID ONLY per user request (340)
+    const totalMonthlyUnpaid = list.reduce((sum, c) => sum + c.dueThisMonthItems.reduce((s, it) => s + it.remaining, 0), 0); // UNPAID
     const unpaidDueSoon = list.filter((c) => c.nextDue && monthsBetween(selectedMonthStart, c.nextDue.month) <= 1);
     return { list, totalMonthly, totalMonthlyUnpaid, unpaidDueSoon };
   }, [children, selectedMonthStart, selectedMonthEnd]);
