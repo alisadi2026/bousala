@@ -2080,7 +2080,12 @@ export default function App() {
           // - dueThisMonth = PAID only (340 = 210 Maria + 130 Yaqub)
           // - dueThisMonthItems = ALL items in period for detailed breakdown
           // - dueThisMonthUnpaid = unpaid remaining
-          if (ins.month >= selectedMonthStart && ins.month <= selectedMonthEnd) {
+          // Check if installment belongs to this fiscal period by month OR by payment date
+          const inPeriodByMonth = ins.month >= selectedMonthStart && ins.month <= selectedMonthEnd;
+          const inPeriodByPayment = paidAmount > 0 && ins.paymentDate && ins.paymentDate >= selectedMonthStart && ins.paymentDate <= selectedMonthEnd;
+          const inPeriod = inPeriodByMonth || inPeriodByPayment;
+          
+          if (inPeriod) {
             // Track all items in period
             dueThisMonthItems.push({ ...ins, paidAmount, remaining, yearId: y.id, yearLabel: y.label, stage: y.stage, isPaid: paidAmount > 0 });
             if (paidAmount > 0) {
