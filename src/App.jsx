@@ -1089,8 +1089,6 @@ export default function App() {
   const [showAddEntryModal, setShowAddEntryModal] = useState(false);
   const [showPayModal, setShowPayModal] = useState(false);
   const [showDetailsSection, setShowDetailsSection] = useState(false);
-  const [showAddEntryModal, setShowAddEntryModal] = useState(false);
-  const [showPayModal, setShowPayModal] = useState(false);
   const [financialDetail, setFinancialDetail] = useState(null);
   const [showRecentModal, setShowRecentModal] = useState(false);
   const [fixedDetailId, setFixedDetailId] = useState(null);
