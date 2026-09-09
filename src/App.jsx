@@ -2096,8 +2096,6 @@ export default function App() {
       return { ...c, years, dueThisMonth, dueThisMonthUnpaid: dueThisMonth, dueThisMonthPaid, dueThisMonthItems, nextDue, totalRemainingUnpaid };
     });
 
-    const totalMonthly = list.reduce((sum, c) => sum + c.dueThisMonth, 0);
-    const totalMonthlyUnpaid = totalMonthly;
     const unpaidDueSoon = list.filter((c) => c.nextDue && monthsBetween(selectedMonthStart, c.nextDue.month) <= 1);
     return { list, totalMonthly, totalMonthlyUnpaid, unpaidDueSoon };
   }, [children, selectedMonthStart, selectedMonthEnd]);
@@ -2283,8 +2281,9 @@ export default function App() {
         </div>
       </div>
 
-      {/* Compact top actions */}
+      {/* Compact top actions - FIXED with logout button */}
       <div style={{ maxWidth: 980, margin: "0 auto 18px", display: "flex", justifyContent: "flex-end", gap: 8, position: "relative" }}>
+        <button className="btn" onClick={logout} style={{ background: "#C1523B", color: "#fff", border: `1px solid #C1523B`, borderRadius: 9, padding: "8px 13px", fontWeight: 700, display: "flex", alignItems: "center", gap: 6 }}><LogOut size={14} /> {t("logout")}</button>
         <button className="btn" onClick={() => setShowSettingsModal(true)} style={{ background: CARD_SOFT, color: PAPER, border: `1px solid ${LINE}`, borderRadius: 9, padding: "8px 13px", fontWeight: 700, display: "flex", alignItems: "center", gap: 6 }}><Settings size={14} color={GOLD} /> {t("settingsButton")}</button>
         <button className="btn" onClick={() => setShowExportMenu((v) => !v)} style={{ background: CARD_SOFT, color: PAPER, border: `1px solid ${LINE}`, borderRadius: 9, padding: "8px 13px", fontWeight: 700, display: "flex", alignItems: "center", gap: 6 }}><Download size={14} color={GOLD} /> {t("exportMenu")} <ChevronDown size={13} /></button>
         {showExportMenu && <div style={{ position: "absolute", top: 43, insetInlineEnd: 0, zIndex: 50, background: CARD, border: `1px solid ${LINE}`, borderRadius: 10, padding: 7, minWidth: 190, boxShadow: "0 14px 30px #0008" }}>
