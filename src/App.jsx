@@ -1137,21 +1137,21 @@ export default function App() {
     storage.delete("auth-session").catch(()=>{});
   }
 
-  // ---------- load ----------
+    // ---------- load - NO AUTO LOGIN (security fix) ----------
   useEffect(() => {
     (async () => {
       try {
+        // Security fix: Do NOT auto-login, always require password
+        // Clear old session
         const sess = await storage.get("auth-session");
         if (sess && sess.value) {
+          // Remove auto-login, just preload username
           try {
             const parsed = JSON.parse(sess.value);
-            if (parsed && parsed.timestamp && (Date.now() - parsed.timestamp) < 30*24*60*60*1000) {
-              setIsAuthenticated(true);
-              if (parsed.user) setLoginUser(parsed.user);
-            }
+            if (parsed && parsed.user) setLoginUser(parsed.user);
           } catch {}
         }
-      } catch {}
+        setIsA      } catch {}
       try {
         const e = await storage.get("expense-entries");
         if (e) setEntries(JSON.parse(e.value));
@@ -2077,8 +2077,8 @@ export default function App() {
           if (remaining > 0) totalRemainingUnpaid += remaining;
 
           if (ins.month >= selectedMonthStart && ins.month <= selectedMonthEnd) {
-            // The monthly commitment shown to the user is what is still outstanding.
-            dueThisMonth += remaining;
+            // FIX: Show full monthly amount, not just remaining - so paid installments still appear in total
+            dueThisMonth += ins.amount;
             dueThisMonthItems.push({ ...ins, paidAmount, remaining, yearId: y.id, yearLabel: y.label, stage: y.stage });
             if (remaining > 0) dueThisMonthPaid = false;
           }
@@ -2095,7 +2095,7 @@ export default function App() {
     });
 
     const totalMonthly = list.reduce((sum, c) => sum + c.dueThisMonth, 0);
-    const totalMonthlyUnpaid = totalMonthly;
+    const totalMonthlyUnpaid = list.reduce((sum, c) => sum + c.dueThisMonthItems.reduce((s, it) => s + it.remaining, 0), 0);
     const unpaidDueSoon = list.filter((c) => c.nextDue && monthsBetween(selectedMonthStart, c.nextDue.month) <= 1);
     return { list, totalMonthly, totalMonthlyUnpaid, unpaidDueSoon };
   }, [children, selectedMonthStart, selectedMonthEnd]);
@@ -2281,8 +2281,9 @@ export default function App() {
         </div>
       </div>
 
-      {/* Compact top actions */}
+      {/* Compact top actions - FIXED with logout button */}
       <div style={{ maxWidth: 980, margin: "0 auto 18px", display: "flex", justifyContent: "flex-end", gap: 8, position: "relative" }}>
+        <button className="btn" onClick={logout} style={{ background: RED, color: "#fff", border: `1px solid ${RED}`, borderRadius: 9, padding: "8px 13px", fontWeight: 700, display: "flex", alignItems: "center", gap: 6 }}><LogOut size={14} /> {t("logout")}</button>
         <button className="btn" onClick={() => setShowSettingsModal(true)} style={{ background: CARD_SOFT, color: PAPER, border: `1px solid ${LINE}`, borderRadius: 9, padding: "8px 13px", fontWeight: 700, display: "flex", alignItems: "center", gap: 6 }}><Settings size={14} color={GOLD} /> {t("settingsButton")}</button>
         <button className="btn" onClick={() => setShowExportMenu((v) => !v)} style={{ background: CARD_SOFT, color: PAPER, border: `1px solid ${LINE}`, borderRadius: 9, padding: "8px 13px", fontWeight: 700, display: "flex", alignItems: "center", gap: 6 }}><Download size={14} color={GOLD} /> {t("exportMenu")} <ChevronDown size={13} /></button>
         {showExportMenu && <div style={{ position: "absolute", top: 43, insetInlineEnd: 0, zIndex: 50, background: CARD, border: `1px solid ${LINE}`, borderRadius: 10, padding: 7, minWidth: 190, boxShadow: "0 14px 30px #0008" }}>
