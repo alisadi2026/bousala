@@ -1089,6 +1089,8 @@ export default function App() {
   const [showAddEntryModal, setShowAddEntryModal] = useState(false);
   const [showPayModal, setShowPayModal] = useState(false);
   const [showDetailsSection, setShowDetailsSection] = useState(false);
+  const [showAddEntryModal, setShowAddEntryModal] = useState(false);
+  const [showPayModal, setShowPayModal] = useState(false);
   const [financialDetail, setFinancialDetail] = useState(null);
   const [showRecentModal, setShowRecentModal] = useState(false);
   const [fixedDetailId, setFixedDetailId] = useState(null);
@@ -1137,21 +1139,21 @@ export default function App() {
     storage.delete("auth-session").catch(()=>{});
   }
 
-    // ---------- load - NO AUTO LOGIN (security fix) ----------
+  // ---------- load ----------
   useEffect(() => {
     (async () => {
       try {
-        // Security fix: Do NOT auto-login, always require password
-        // Clear old session
         const sess = await storage.get("auth-session");
         if (sess && sess.value) {
-          // Remove auto-login, just preload username
           try {
             const parsed = JSON.parse(sess.value);
-            if (parsed && parsed.user) setLoginUser(parsed.user);
+            if (parsed && parsed.timestamp && (Date.now() - parsed.timestamp) < 30*24*60*60*1000) {
+              setIsAuthenticated(true);
+              if (parsed.user) setLoginUser(parsed.user);
+            }
           } catch {}
         }
-        setIsA      } catch {}
+      } catch {}
       try {
         const e = await storage.get("expense-entries");
         if (e) setEntries(JSON.parse(e.value));
@@ -2076,24 +2078,11 @@ export default function App() {
           const remaining = installmentRemaining(ins);
           if (remaining > 0) totalRemainingUnpaid += remaining;
 
-          // FINAL FIX per user request:
-          // - dueThisMonth = PAID only (340 = 210 Maria + 130 Yaqub)
-          // - dueThisMonthItems = ALL items in period for detailed breakdown
-          // - dueThisMonthUnpaid = unpaid remaining
-          // Check if installment belongs to this fiscal period by month OR by payment date
-          const inPeriodByMonth = ins.month >= selectedMonthStart && ins.month <= selectedMonthEnd;
-          const inPeriodByPayment = paidAmount > 0 && ins.paymentDate && ins.paymentDate >= selectedMonthStart && ins.paymentDate <= selectedMonthEnd;
-          const inPeriod = inPeriodByMonth || inPeriodByPayment;
-          
-          if (inPeriod) {
-            // Track all items in period
-            dueThisMonthItems.push({ ...ins, paidAmount, remaining, yearId: y.id, yearLabel: y.label, stage: y.stage, isPaid: paidAmount > 0 });
-            if (paidAmount > 0) {
-              dueThisMonth += paidAmount;
-            }
-            if (remaining > 0) {
-              dueThisMonthPaid = false;
-            }
+          if (ins.month >= selectedMonthStart && ins.month <= selectedMonthEnd) {
+            // The monthly commitment shown to the user is what is still outstanding.
+            dueThisMonth += remaining;
+            dueThisMonthItems.push({ ...ins, paidAmount, remaining, yearId: y.id, yearLabel: y.label, stage: y.stage });
+            if (remaining > 0) dueThisMonthPaid = false;
           }
 
           if (remaining > 0 && ins.month > selectedMonthEnd) {
@@ -2107,8 +2096,8 @@ export default function App() {
       return { ...c, years, dueThisMonth, dueThisMonthUnpaid: dueThisMonth, dueThisMonthPaid, dueThisMonthItems, nextDue, totalRemainingUnpaid };
     });
 
-    const totalMonthly = list.reduce((sum, c) => sum + c.dueThisMonth, 0); // PAID ONLY per user request (340)
-    const totalMonthlyUnpaid = list.reduce((sum, c) => sum + c.dueThisMonthItems.reduce((s, it) => s + it.remaining, 0), 0); // UNPAID
+    const totalMonthly = list.reduce((sum, c) => sum + c.dueThisMonth, 0);
+    const totalMonthlyUnpaid = totalMonthly;
     const unpaidDueSoon = list.filter((c) => c.nextDue && monthsBetween(selectedMonthStart, c.nextDue.month) <= 1);
     return { list, totalMonthly, totalMonthlyUnpaid, unpaidDueSoon };
   }, [children, selectedMonthStart, selectedMonthEnd]);
@@ -2294,9 +2283,8 @@ export default function App() {
         </div>
       </div>
 
-      {/* Compact top actions - FIXED with logout button */}
+      {/* Compact top actions */}
       <div style={{ maxWidth: 980, margin: "0 auto 18px", display: "flex", justifyContent: "flex-end", gap: 8, position: "relative" }}>
-        <button className="btn" onClick={logout} style={{ background: RED, color: "#fff", border: `1px solid ${RED}`, borderRadius: 9, padding: "8px 13px", fontWeight: 700, display: "flex", alignItems: "center", gap: 6 }}><LogOut size={14} /> {t("logout")}</button>
         <button className="btn" onClick={() => setShowSettingsModal(true)} style={{ background: CARD_SOFT, color: PAPER, border: `1px solid ${LINE}`, borderRadius: 9, padding: "8px 13px", fontWeight: 700, display: "flex", alignItems: "center", gap: 6 }}><Settings size={14} color={GOLD} /> {t("settingsButton")}</button>
         <button className="btn" onClick={() => setShowExportMenu((v) => !v)} style={{ background: CARD_SOFT, color: PAPER, border: `1px solid ${LINE}`, borderRadius: 9, padding: "8px 13px", fontWeight: 700, display: "flex", alignItems: "center", gap: 6 }}><Download size={14} color={GOLD} /> {t("exportMenu")} <ChevronDown size={13} /></button>
         {showExportMenu && <div style={{ position: "absolute", top: 43, insetInlineEnd: 0, zIndex: 50, background: CARD, border: `1px solid ${LINE}`, borderRadius: 10, padding: 7, minWidth: 190, boxShadow: "0 14px 30px #0008" }}>
@@ -3698,7 +3686,7 @@ export default function App() {
       {financialDetail && <Modal title={t("financialDetails")} onClose={()=>setFinancialDetail(null)} dir={dir}>
         {financialDetail === "income" && <DetailList items={incomeSources.filter(s=>s.startDate<=selectedMonthEnd&&(!s.endDate||s.endDate>=selectedMonthStart)).map(s=>({name:s.name,value:s.amount,sub:fmtDateL(s.startDate,lang)}))} empty={t("incomeEmpty")} lang={lang}/>}
         {financialDetail === "fixed" && <div>{fixedCalc.list.filter(f=>f.status==="active").map(f=><div key={f.id} style={{background:CARD_SOFT,borderRadius:10,padding:12,marginBottom:8,cursor:"pointer"}} onClick={()=>setFixedDetailId(f.id)}><div style={{display:"flex",justifyContent:"space-between"}}><b>{f.name}</b><b>{fmt(f.amount)} {lang==="en"?"JOD":"د.أ"}</b></div><div style={{fontSize:11,color:MUTED,marginTop:6}}>{t("consumedLabel")}: {fmt(f.consumed)} · {t("remainingLabel")}: {fmt(f.remaining)}</div><div style={{height:7,background:LINE,borderRadius:99,overflow:"hidden",marginTop:7}}><div style={{height:"100%",width:`${f.consumptionPct}%`,background:f.consumptionPct>=100?RED:TEAL}}/></div></div>)}</div>}
-        {financialDetail === "children" && <DetailList items={childrenCalc.list.filter(c=>c.dueThisMonth>0).map(c=>({name:c.name,value:c.dueThisMonth,sub:t("paid")}))} empty={t("noInstallmentDue")} lang={lang}/>}
+        {financialDetail === "children" && <DetailList items={childrenCalc.list.filter(c=>c.dueThisMonth>0).map(c=>({name:c.name,value:c.dueThisMonth,sub:c.dueThisMonthPaid?t("paid"):t("unpaid")}))} empty={t("noInstallmentDue")} lang={lang}/>}
         {financialDetail === "variable" && <DetailList items={calc.byCategory.map(c=>({name:c.name,value:c.value,sub:""}))} empty={t("noEntriesInMonth",{month:selectedMonthLabel})} lang={lang}/>}
       </Modal>}
 
