@@ -1089,8 +1089,6 @@ export default function App() {
   const [showAddEntryModal, setShowAddEntryModal] = useState(false);
   const [showPayModal, setShowPayModal] = useState(false);
   const [showDetailsSection, setShowDetailsSection] = useState(false);
-  const [showAddEntryModal, setShowAddEntryModal] = useState(false);
-  const [showPayModal, setShowPayModal] = useState(false);
   const [financialDetail, setFinancialDetail] = useState(null);
   const [showRecentModal, setShowRecentModal] = useState(false);
   const [fixedDetailId, setFixedDetailId] = useState(null);
@@ -2062,11 +2060,12 @@ export default function App() {
     return { list, activeTotal, totalConsumed, endingSoon };
   }, [fixedExpenses, entries, selectedMonth, selectedMonthIsPast]);
 
-  // ---------- children tuition: actual monthly installments (paid/unpaid ledger) ----------
+  // ---------- children tuition: PAID ONLY per user request (340 = 210 Maria + 130 Yaqub) ----------
+  // Priority: if paymentDate exists use it, else use ins.month - prevents duplicate in two months
   const childrenCalc = useMemo(() => {
     const list = children.map((c) => {
       const years = c.years || [];
-      let dueThisMonth = 0;
+      let dueThisMonth = 0; // PAID ONLY
       let dueThisMonthPaid = true;
       let dueThisMonthItems = [];
       let nextDue = null;
@@ -2078,11 +2077,22 @@ export default function App() {
           const remaining = installmentRemaining(ins);
           if (remaining > 0) totalRemainingUnpaid += remaining;
 
-          if (ins.month >= selectedMonthStart && ins.month <= selectedMonthEnd) {
-            // The monthly commitment shown to the user is what is still outstanding.
-            dueThisMonth += remaining;
-            dueThisMonthItems.push({ ...ins, paidAmount, remaining, yearId: y.id, yearLabel: y.label, stage: y.stage });
-            if (remaining > 0) dueThisMonthPaid = false;
+          // Priority logic per user: paymentDate if exists, else ins.month
+          let effectiveDate;
+          if (paidAmount > 0 && ins.paymentDate) {
+            effectiveDate = ins.paymentDate;
+          } else {
+            effectiveDate = ins.month;
+          }
+
+          if (effectiveDate >= selectedMonthStart && effectiveDate <= selectedMonthEnd) {
+            dueThisMonthItems.push({ ...ins, paidAmount, remaining, yearId: y.id, yearLabel: y.label, stage: y.stage, isPaid: paidAmount > 0 });
+            if (paidAmount > 0) {
+              dueThisMonth += paidAmount;
+            }
+            if (remaining > 0) {
+              dueThisMonthPaid = false;
+            }
           }
 
           if (remaining > 0 && ins.month > selectedMonthEnd) {
@@ -2096,6 +2106,8 @@ export default function App() {
       return { ...c, years, dueThisMonth, dueThisMonthUnpaid: dueThisMonth, dueThisMonthPaid, dueThisMonthItems, nextDue, totalRemainingUnpaid };
     });
 
+    const totalMonthly = list.reduce((sum, c) => sum + c.dueThisMonth, 0); // PAID ONLY 340
+    const totalMonthlyUnpaid = list.reduce((sum, c) => sum + c.dueThisMonthItems.reduce((s, it) => s + it.remaining, 0), 0);
     const unpaidDueSoon = list.filter((c) => c.nextDue && monthsBetween(selectedMonthStart, c.nextDue.month) <= 1);
     return { list, totalMonthly, totalMonthlyUnpaid, unpaidDueSoon };
   }, [children, selectedMonthStart, selectedMonthEnd]);
