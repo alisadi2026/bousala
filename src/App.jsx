@@ -1111,8 +1111,11 @@ export default function App() {
       if (loginPassword !== loginPassword2) return setAuthError(t("authPasswordsMismatch"));
       const passwordHash = await hashPassword(loginPassword);
       localStorage.setItem("expense-auth", JSON.stringify({ username, passwordHash }));
-      localStorage.setItem("auth-session", JSON.stringify({ user: username, timestamp: Date.now() }));
-      setIsAuthenticated(true); setAuthError(""); setLoginPassword(""); setLoginPassword2("");
+      // Use sessionStorage: survives refresh, cleared when browser closed
+      sessionStorage.setItem("auth-session", JSON.stringify({ user: username, timestamp: Date.now() }));
+      setIsAuthenticated(true); 
+      setSelectedMonth(currentMonthKey); // Go to current month on login
+      setAuthError(""); setLoginPassword(""); setLoginPassword2("");
       showToast(t("authCreated"));
       return;
     }
@@ -1122,8 +1125,10 @@ export default function App() {
       const saved = JSON.parse(savedRaw);
       const passwordHash = await hashPassword(loginPassword);
       if (saved.username === username && saved.passwordHash === passwordHash) {
-        localStorage.setItem("auth-session", JSON.stringify({ user: username, timestamp: Date.now() }));
-        setIsAuthenticated(true); setAuthError(""); setLoginPassword("");
+        sessionStorage.setItem("auth-session", JSON.stringify({ user: username, timestamp: Date.now() }));
+        setIsAuthenticated(true); 
+        setSelectedMonth(currentMonthKey); // Go to current month on login
+        setAuthError(""); setLoginPassword("");
       } else setAuthError(t("authInvalid"));
     } catch { setAuthError(t("authInvalid")); }
   }
@@ -1133,21 +1138,41 @@ export default function App() {
     setLoginPassword("");
     setShowSettingsModal(false);
     setShowExportMenu(false);
-    localStorage.removeItem("auth-session");
+    sessionStorage.removeItem("auth-session");
+    localStorage.removeItem("auth-session"); // Clean old storage
     storage.delete("auth-session").catch(()=>{});
   }
 
-  // ---------- load ----------
+  // ---------- load - FIXED: sessionStorage for refresh persistence, cleared on browser close ----------
   useEffect(() => {
     (async () => {
       try {
-        const sess = await storage.get("auth-session");
-        if (sess && sess.value) {
+        // Check sessionStorage first (survives refresh, cleared on browser close)
+        let sessRaw = sessionStorage.getItem("auth-session");
+        // Fallback to old localStorage for migration, then move to sessionStorage
+        if (!sessRaw) {
+          const oldSess = await storage.get("auth-session");
+          if (oldSess && oldSess.value) {
+            sessRaw = oldSess.value;
+            // Migrate to sessionStorage
+            sessionStorage.setItem("auth-session", sessRaw);
+            storage.delete("auth-session").catch(()=>{});
+            localStorage.removeItem("auth-session");
+          } else {
+            sessRaw = localStorage.getItem("auth-session");
+            if (sessRaw) {
+              sessionStorage.setItem("auth-session", sessRaw);
+              localStorage.removeItem("auth-session");
+            }
+          }
+        }
+        if (sessRaw) {
           try {
-            const parsed = JSON.parse(sess.value);
-            if (parsed && parsed.timestamp && (Date.now() - parsed.timestamp) < 30*24*60*60*1000) {
+            const parsed = JSON.parse(sessRaw);
+            // Session valid - no 30-day check, sessionStorage auto-clears on browser close
+            if (parsed && parsed.user) {
               setIsAuthenticated(true);
-              if (parsed.user) setLoginUser(parsed.user);
+              setLoginUser(parsed.user);
             }
           } catch {}
         }
