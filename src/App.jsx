@@ -6,55 +6,20 @@ import {
 import * as XLSX from "xlsx";
 import { Plus, ClipboardPaste, Target, TrendingUp, Wallet, AlertTriangle, X, Check, Pencil, Baby, Clock, Bell, PiggyBank, BarChart3, Languages, Download, Upload, Settings, Search, ArrowUpDown, LogOut, ChevronDown, Eye, Link2, Lock, User, SlidersHorizontal } from "lucide-react";
 
-// ---------- Supabase + localStorage hybrid (Bousala online) ----------
-import { createClient } from "@supabase/supabase-js";
-
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || "https://wppzlxhfogkioasbhhao.supabase.co";
-const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || "sb_publishable_AHs3NrVRkKm0hy2PwIgNdw_doI0DJj7";
-const supabase = SUPABASE_URL && SUPABASE_ANON_KEY ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
-const BOUSALA_ID = "default";
-
+// Plain localStorage-backed persistence for a normal standalone browser app (this is a real
+// key/value browser store — appropriate here, unlike inside a Claude.ai artifact sandbox).
+// Kept as a local variable (not attached to `window`) so it can't collide with anything else.
 const storage = {
   async get(key) {
-    if (supabase) {
-      try {
-        const { data, error } = await supabase.from("bousala_state").select("data").eq("id", BOUSALA_ID).single();
-        if (!error && data && data.data && data.data[key]) {
-          return { value: data.data[key] };
-        }
-      } catch (e) {
-        console.log("Supabase get fallback", e);
-      }
-    }
     const value = localStorage.getItem(key);
     return value === null ? null : { value };
   },
   async set(key, value) {
     localStorage.setItem(key, value);
-    if (supabase) {
-      try {
-        const { data: existing } = await supabase.from("bousala_state").select("data").eq("id", BOUSALA_ID).single();
-        const currentData = existing?.data || {};
-        const newData = { ...currentData, [key]: value };
-        await supabase.from("bousala_state").upsert({ id: BOUSALA_ID, data: newData, updated_at: new Date().toISOString() });
-      } catch (e) {
-        console.log("Supabase set error", e);
-      }
-    }
     return true;
   },
   async delete(key) {
     localStorage.removeItem(key);
-    if (supabase) {
-      try {
-        const { data: existing } = await supabase.from("bousala_state").select("data").eq("id", BOUSALA_ID).single();
-        if (existing?.data) {
-          const newData = { ...existing.data };
-          delete newData[key];
-          await supabase.from("bousala_state").upsert({ id: BOUSALA_ID, data: newData, updated_at: new Date().toISOString() });
-        }
-      } catch (e) {}
-    }
     return true;
   },
 };
@@ -340,9 +305,9 @@ function currentFixedAmount(f, todayIso, monthKey) {
   if (monthKey && f.monthlyOverrides && f.monthlyOverrides[monthKey] !== undefined) {
     return f.monthlyOverrides[monthKey];
   }
-  const hist = (f.amountHistory || []).filter((h) => h.effectiveFrom <= todayIso).sort((a, b) => (a.effectiveFrom < b.effectiveFrom ? 1 : -1));
+  const hist = [...(f.amountHistory || [])].filter((h) => h.effectiveFrom <= todayIso).sort((a, b) => (a.effectiveFrom < b.effectiveFrom ? 1 : -1));
   if (hist.length > 0) return hist[0].amount;
-  const all = (f.amountHistory || []).sort((a, b) => (a.effectiveFrom < b.effectiveFrom ? -1 : 1));
+  const all = [...(f.amountHistory || [])].sort((a, b) => (a.effectiveFrom < b.effectiveFrom ? -1 : 1));
   return all.length > 0 ? all[0].amount : f.amount || 0;
 }
 
@@ -1121,6 +1086,9 @@ export default function App() {
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [settingsTab, setSettingsTab] = useState("general");
   const [showExportMenu, setShowExportMenu] = useState(false);
+  const [showAddEntryModal, setShowAddEntryModal] = useState(false);
+  const [showPayModal, setShowPayModal] = useState(false);
+  const [showDetailsSection, setShowDetailsSection] = useState(false);
   const [showAddEntryModal, setShowAddEntryModal] = useState(false);
   const [showPayModal, setShowPayModal] = useState(false);
   const [showDetailsSection, setShowDetailsSection] = useState(false);
@@ -2102,8 +2070,6 @@ export default function App() {
       let dueThisMonth = 0;
       let dueThisMonthPaid = true;
       let dueThisMonthItems = [];
-      let paidThisMonth = 0;
-      let paidThisMonthItems = [];
       let nextDue = null;
       let totalRemainingUnpaid = 0;
 
@@ -2114,14 +2080,10 @@ export default function App() {
           if (remaining > 0) totalRemainingUnpaid += remaining;
 
           if (ins.month >= selectedMonthStart && ins.month <= selectedMonthEnd) {
+            // The monthly commitment shown to the user is what is still outstanding.
             dueThisMonth += remaining;
             dueThisMonthItems.push({ ...ins, paidAmount, remaining, yearId: y.id, yearLabel: y.label, stage: y.stage });
             if (remaining > 0) dueThisMonthPaid = false;
-          }
-
-          if (ins.paid && ins.paymentDate && ins.paymentDate >= selectedMonthStart && ins.paymentDate <= selectedMonthEnd) {
-            paidThisMonth += paidAmount;
-            paidThisMonthItems.push({ ...ins, paidAmount, remaining, yearId: y.id, yearLabel: y.label, stage: y.stage });
           }
 
           if (remaining > 0 && ins.month > selectedMonthEnd) {
@@ -2132,14 +2094,13 @@ export default function App() {
         });
       });
 
-      return { ...c, years, dueThisMonth, dueThisMonthUnpaid: dueThisMonth, dueThisMonthPaid, dueThisMonthItems, paidThisMonth, paidThisMonthItems, nextDue, totalRemainingUnpaid };
+      return { ...c, years, dueThisMonth, dueThisMonthUnpaid: dueThisMonth, dueThisMonthPaid, dueThisMonthItems, nextDue, totalRemainingUnpaid };
     });
 
     const totalMonthly = list.reduce((sum, c) => sum + c.dueThisMonth, 0);
     const totalMonthlyUnpaid = totalMonthly;
-    const totalMonthlyPaid = list.reduce((sum, c) => sum + c.paidThisMonth, 0);
     const unpaidDueSoon = list.filter((c) => c.nextDue && monthsBetween(selectedMonthStart, c.nextDue.month) <= 1);
-    return { list, totalMonthly, totalMonthlyUnpaid, totalMonthlyPaid, unpaidDueSoon };
+    return { list, totalMonthly, totalMonthlyUnpaid, unpaidDueSoon };
   }, [children, selectedMonthStart, selectedMonthEnd]);
 
   // ---------- fixed expenses list combined with children's monthly tuition (for display) ----------
@@ -2360,29 +2321,21 @@ export default function App() {
               <div style={{ display: "flex", flexDirection: "column", padding: "9px 0", borderTop: `1px dashed ${LINE}` }}>
                 <div onClick={()=>setFinancialDetail('children')} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", cursor:"pointer" }}>
                   <span style={{ fontSize: 13.5, color: PAPER, display:"flex", alignItems:"center", gap:6 }}>{t("childrenInstallmentsLine")} <Eye size={12} color={GOLD}/></span>
-                  <div style={{ display:"flex", flexDirection:"column", alignItems:"flex-end" }}>
-                    <span style={{ fontSize: 15, fontWeight: 700, color: RED }}>-{fmt(childrenCalc.totalMonthlyPaid > 0 ? childrenCalc.totalMonthlyPaid : childrenCalc.totalMonthly)} {lang === "en" ? "JOD" : "د.أ"}</span>
-                    {childrenCalc.totalMonthly > 0 && childrenCalc.totalMonthlyPaid > 0 && (
-                      <span style={{ fontSize: 11, fontWeight: 600, color: MUTED }}>{lang === "en" ? `Remaining: ${fmt(childrenCalc.totalMonthly)} JOD` : `المتبقي: ${fmt(childrenCalc.totalMonthly)} د.أ`}</span>
-                    )}
-                  </div>
+                  <span style={{ fontSize: 15, fontWeight: 700, color: RED }}>-{fmt(childrenCalc.totalMonthly)} {lang === "en" ? "JOD" : "د.أ"}</span>
                 </div>
-                {(childrenCalc.list.filter(c=>c.paidThisMonth>0).length>0 ? childrenCalc.list.filter(c=>c.paidThisMonth>0) : childrenCalc.list.filter(c=>c.dueThisMonth>0)).length>0 && (
+                {childrenCalc.list.filter(c=>c.dueThisMonth>0).length>0 && (
                   <div style={{ marginTop:8, background: CARD_SOFT, borderRadius:8, padding:"8px 10px" }}>
-                    {childrenCalc.list.filter(c=> childrenCalc.totalMonthlyPaid>0 ? c.paidThisMonth>0 : c.dueThisMonth>0).map(c=>{
-                      const items = childrenCalc.totalMonthlyPaid>0 ? c.paidThisMonthItems : c.dueThisMonthItems;
-                      const total = childrenCalc.totalMonthlyPaid>0 ? c.paidThisMonth : c.dueThisMonth;
-                      return (
+                    {childrenCalc.list.filter(c=>c.dueThisMonth>0).map(c=>(
                       <div key={c.id} style={{ fontSize:11.5, color:MUTED, marginBottom:4 }}>
                         <span style={{ color:PAPER, fontWeight:700 }}>{c.name}: </span>
-                        {items.map((it,i)=>(
+                        {c.dueThisMonthItems.map((it,i)=>(
                           <span key={it.id} style={{ display:"inline-block", background: it.paid? "#3E9C7C22" : "#C1523B22", color: it.paid? TEAL : RED, borderRadius:6, padding:"2px 6px", margin:"2px 3px", fontSize:11 }}>
-                            {fmtInstallmentMonthL(it.paymentDate || it.month, lang)} {fmt(it.paidAmount || it.amount)} {it.paid? "✓" : "✗"}{i < items.length-1 ? "" : ""}
+                            {fmtInstallmentMonthL(it.month, lang)} {fmt(it.amount)} {it.paid? "✓" : "✗"}{i < c.dueThisMonthItems.length-1 ? "" : ""}
                           </span>
                         ))}
-                        <span style={{ color: PAPER }}> = {fmt(total)}</span>
+                        <span style={{ color: PAPER }}> = {fmt(c.dueThisMonth)}</span>
                       </div>
-                    )})}
+                    ))}
                     
                   </div>
                 )}
@@ -3462,7 +3415,7 @@ export default function App() {
               </PieChart>
             </ResponsiveContainer>
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              {calc.byCategory.sort((a, b) => b.value - a.value).map((c) => (
+              {[...calc.byCategory].sort((a, b) => b.value - a.value).map((c) => (
                 <div key={c.name} style={{ display: "flex", justifyContent: "space-between", fontSize: 13.5 }}>
                   <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
                     <span style={{ width: 9, height: 9, borderRadius: "50%", background: c.color, display: "inline-block" }} />
@@ -3734,7 +3687,7 @@ export default function App() {
       {financialDetail && <Modal title={t("financialDetails")} onClose={()=>setFinancialDetail(null)} dir={dir}>
         {financialDetail === "income" && <DetailList items={incomeSources.filter(s=>s.startDate<=selectedMonthEnd&&(!s.endDate||s.endDate>=selectedMonthStart)).map(s=>({name:s.name,value:s.amount,sub:fmtDateL(s.startDate,lang)}))} empty={t("incomeEmpty")} lang={lang}/>}
         {financialDetail === "fixed" && <div>{fixedCalc.list.filter(f=>f.status==="active").map(f=><div key={f.id} style={{background:CARD_SOFT,borderRadius:10,padding:12,marginBottom:8,cursor:"pointer"}} onClick={()=>setFixedDetailId(f.id)}><div style={{display:"flex",justifyContent:"space-between"}}><b>{f.name}</b><b>{fmt(f.amount)} {lang==="en"?"JOD":"د.أ"}</b></div><div style={{fontSize:11,color:MUTED,marginTop:6}}>{t("consumedLabel")}: {fmt(f.consumed)} · {t("remainingLabel")}: {fmt(f.remaining)}</div><div style={{height:7,background:LINE,borderRadius:99,overflow:"hidden",marginTop:7}}><div style={{height:"100%",width:`${f.consumptionPct}%`,background:f.consumptionPct>=100?RED:TEAL}}/></div></div>)}</div>}
-        {financialDetail === "children" && <DetailList items={childrenCalc.list.filter(c=>c.paidThisMonth>0).map(c=>({name:c.name,value:c.paidThisMonth,sub:c.paidThisMonthItems.map(i=>`${i.yearLabel} ${i.month} ${fmt(i.paidAmount)} - ${i.paymentDate}`).join(', ')||t("paid")}))} empty={t("noInstallmentDue")} lang={lang}/>}
+        {financialDetail === "children" && <DetailList items={childrenCalc.list.filter(c=>c.dueThisMonth>0).map(c=>({name:c.name,value:c.dueThisMonth,sub:c.dueThisMonthPaid?t("paid"):t("unpaid")}))} empty={t("noInstallmentDue")} lang={lang}/>}
         {financialDetail === "variable" && <DetailList items={calc.byCategory.map(c=>({name:c.name,value:c.value,sub:""}))} empty={t("noEntriesInMonth",{month:selectedMonthLabel})} lang={lang}/>}
       </Modal>}
 
