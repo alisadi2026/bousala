@@ -2076,14 +2076,14 @@ export default function App() {
           const remaining = installmentRemaining(ins);
           if (remaining > 0) totalRemainingUnpaid += remaining;
 
-          if (ins.month >= selectedMonthStart && ins.month <= selectedMonthEnd) {
-            // FIX: Show full monthly amount, not just remaining - so paid installments still appear in total
+          // FIXED: Filter by calendar month (YYYY-MM) for intuitive display, not fiscal date range
+          if (ins.month.slice(0,7) === selectedMonth) {
             dueThisMonth += ins.amount;
             dueThisMonthItems.push({ ...ins, paidAmount, remaining, yearId: y.id, yearLabel: y.label, stage: y.stage });
             if (remaining > 0) dueThisMonthPaid = false;
           }
 
-          if (remaining > 0 && ins.month > selectedMonthEnd) {
+          if (remaining > 0 && ins.month.slice(0,7) > selectedMonth) { // FIXED
             if (!nextDue || ins.month < nextDue.month) {
               nextDue = { ...ins, paidAmount, remaining, yearId: y.id, yearLabel: y.label, stage: y.stage };
             }
