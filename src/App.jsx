@@ -1002,6 +1002,12 @@ export default function App() {
   const [allOrgs, setAllOrgs] = useState([]);
   const [allUsers, setAllUsers] = useState([]);
   const [showUsersManagement, setShowUsersManagement] = useState(false);
+  // Programs/Modules system
+  const [availablePrograms, setAvailablePrograms] = useState([]);
+  const [selectedProgram, setSelectedProgram] = useState(() => localStorage.getItem('bousala_program') || 'bousala');
+  const [allPrograms, setAllPrograms] = useState([]);
+  const [showProgramsManagement, setShowProgramsManagement] = useState(false);
+  const [programForm, setProgramForm] = useState({ slug: '', name: '', description: '', icon: '📦', color: '#C9A24B', route: '', sort_order: 0 });
   const [orgName, setOrgName] = useState("");
   const [loadingData, setLoadingData] = useState(true);
 
@@ -1026,6 +1032,30 @@ export default function App() {
               return { ...p, orgNames, orgCount: memberOrgs.length };
             });
             setAllUsers(enriched);
+          }
+          // Fetch available programs for this user
+          try {
+            const { data: progs } = await supabase.from('user_available_programs').select('*').eq('user_id', userId).order('sort_order');
+            if (progs && progs.length>0) {
+              setAvailablePrograms(progs);
+              // If selected program not in available, select first
+              if (!progs.find(p=>p.slug===selectedProgram)) {
+                setSelectedProgram(progs[0].slug);
+                localStorage.setItem('bousala_program', progs[0].slug);
+              }
+            } else {
+              // Fallback: try direct programs
+              const { data: allProgs } = await supabase.from('programs').select('*').eq('is_active', true).order('sort_order');
+              if (allProgs) setAvailablePrograms(allProgs.map(p=>({ ...p, program_name: p.name, slug: p.slug, icon: p.icon, color: p.color })));
+            }
+            // Fetch all programs for admin
+            if (prof.is_super_admin) {
+              const { data: allProgsAdmin } = await supabase.from('programs').select('*').order('sort_order');
+              if (allProgsAdmin) setAllPrograms(allProgsAdmin);
+            }
+          } catch (e) {
+            console.log('Programs fetch failed, fallback to bousala only:', e);
+            setAvailablePrograms([{ slug: 'bousala', program_name: 'بوصلة', icon: '🧭', color: '#C9A24B' }]);
           }
         } catch (e) {
           console.error('Failed to fetch users:', e);
@@ -2465,29 +2495,47 @@ export default function App() {
             <div style={{ fontSize: 12, color: MUTED }}>{t("tagline")} {currentOrgId && `· ${orgName}`}</div>
           </div>
         </div>
-        {isSuperAdmin && (
-          <div style={{display:"flex", alignItems:"center", gap:8}}>
-            {allOrgs.length>0 && (
-              <div style={{display:"flex", alignItems:"center", gap:8, background:CARD_SOFT, borderRadius:9, padding:"6px 10px", border:`1px solid ${LINE}`}}>
-                <Building2 size={14} color={GOLD}/>
-                <select className="field" value={currentOrgId||""} onChange={e=>{
-                  const newId=e.target.value;
-                  setCurrentOrgId(newId);
-                  localStorage.setItem("bousala_org", newId);
-                  const found=allOrgs.find(o=>o.id===newId);
-                  if(found) setOrgName(found.name);
-                  window.location.reload();
-                }} style={{background:"transparent", border:"none", color:PAPER, fontSize:12, fontWeight:700, minWidth:140}}>
-                  {allOrgs.map(o=><option key={o.id} value={o.id} style={{background:CARD}}>{o.name} ({o.id.slice(0,6)})</option>)}
-                </select>
-                <span style={{fontSize:11, color:MUTED}}>{allOrgs.length} orgs</span>
-              </div>
-            )}
-            <button className="btn" onClick={()=>setShowUsersManagement(true)} style={{background:`${GOLD}22`, border:`1px solid ${GOLD}`, color:GOLD, borderRadius:9, padding:"6px 10px", fontSize:12, fontWeight:700, display:"flex", alignItems:"center", gap:6}}>
-              <User size={14}/> إدارة اليوزرز ({allUsers.length})
-            </button>
-          </div>
-        )}
+        <div style={{display:"flex", alignItems:"center", gap:8, flexWrap:"wrap"}}>
+          {/* Programs switcher - visible to all */}
+          {availablePrograms.length>0 && (
+            <div style={{display:"flex", alignItems:"center", gap:6, background:CARD_SOFT, borderRadius:9, padding:"6px 10px", border:`1px solid ${LINE}`}}>
+              <span style={{fontSize:12}}>🧩</span>
+              <select className="field" value={selectedProgram} onChange={e=>{
+                const newProg = e.target.value;
+                setSelectedProgram(newProg);
+                localStorage.setItem('bousala_program', newProg);
+              }} style={{background:"transparent", border:"none", color:PAPER, fontSize:12, fontWeight:700, minWidth:120}}>
+                {availablePrograms.map(p=><option key={p.slug || p.program_id} value={p.slug} style={{background:CARD}}>{p.icon || '📦'} {p.program_name || p.name}</option>)}
+              </select>
+            </div>
+          )}
+          {isSuperAdmin && (
+            <div style={{display:"flex", alignItems:"center", gap:8}}>
+              {allOrgs.length>0 && (
+                <div style={{display:"flex", alignItems:"center", gap:8, background:CARD_SOFT, borderRadius:9, padding:"6px 10px", border:`1px solid ${LINE}`}}>
+                  <Building2 size={14} color={GOLD}/>
+                  <select className="field" value={currentOrgId||""} onChange={e=>{
+                    const newId=e.target.value;
+                    setCurrentOrgId(newId);
+                    localStorage.setItem("bousala_org", newId);
+                    const found=allOrgs.find(o=>o.id===newId);
+                    if(found) setOrgName(found.name);
+                    window.location.reload();
+                  }} style={{background:"transparent", border:"none", color:PAPER, fontSize:12, fontWeight:700, minWidth:140}}>
+                    {allOrgs.map(o=><option key={o.id} value={o.id} style={{background:CARD}}>{o.name} ({o.id.slice(0,6)})</option>)}
+                  </select>
+                  <span style={{fontSize:11, color:MUTED}}>{allOrgs.length} orgs</span>
+                </div>
+              )}
+              <button className="btn" onClick={()=>setShowUsersManagement(true)} style={{background:`${GOLD}22`, border:`1px solid ${GOLD}`, color:GOLD, borderRadius:9, padding:"6px 10px", fontSize:12, fontWeight:700, display:"flex", alignItems:"center", gap:6}}>
+                <User size={14}/> يوزرز ({allUsers.length})
+              </button>
+              <button className="btn" onClick={()=>setShowProgramsManagement(true)} style={{background:`${TEAL}22`, border:`1px solid ${TEAL}`, color:TEAL, borderRadius:9, padding:"6px 10px", fontSize:12, fontWeight:700, display:"flex", alignItems:"center", gap:6}}>
+                🧩 برامج ({allPrograms.length})
+              </button>
+            </div>
+          )}
+        </div>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                     <button
             className="btn"
@@ -2506,7 +2554,9 @@ export default function App() {
 
       
       {/* Users Management - Super Admin Only - Shows user info without financial details */}
-            {/* Users Management - Super Admin Only - Enhanced with full edit */}
+                  </>}
+
+      {/* Users Management - Super Admin Only - Enhanced with full edit */}
       {showUsersManagement && (
         <Modal title="إدارة المستخدمين - Super Admin (كامل)" onClose={()=>setShowUsersManagement(false)} dir={dir}>
           <div style={{display:"flex", flexDirection:"column", gap:14}}>
@@ -2658,10 +2708,165 @@ export default function App() {
         </Modal>
       )}
 
-      {/* Month selector */}
-{/* Month selector */}
+      {/* Programs Management - Super Admin Only */}
+      {showProgramsManagement && (
+        <Modal title="إدارة البرامج / الموديولز - Super Admin" onClose={()=>setShowProgramsManagement(false)} dir={dir}>
+          <div style={{display:"flex", flexDirection:"column", gap:14}}>
+            <div style={{background:CARD_SOFT, borderRadius:10, padding:12, border:`1px solid ${LINE}`}}>
+              <div style={{display:"flex", alignItems:"center", gap:8, marginBottom:8}}>
+                <span style={{fontSize:16}}>🧩</span>
+                <span style={{fontWeight:800, fontSize:14}}>البرامج ({allPrograms.length}) - إدارة الموديولز</span>
+              </div>
+              <div style={{fontSize:11, color:MUTED}}>كل برنامج هو موديول مستقل - تقدر تنشئ موديول جديد، تفعّله/تعطّله، وتعطي صلاحيات لكل منظمة ويوزر</div>
+            </div>
 
-      <div className="card" style={{ maxWidth: 980, margin: "0 auto 18px", padding: 14, borderColor: GOLD }}>
+            {/* Create new program form */}
+            <div className="card" style={{padding:14, border:`1px solid ${GOLD}`}}>
+              <div style={{fontWeight:800, fontSize:12, marginBottom:10}}>➕ إنشاء برنامج جديد</div>
+              <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:8}}>
+                <div><Label>Slug (معرّف فريد - انجليزي)</Label><input className="field" value={programForm.slug} onChange={e=>setProgramForm({...programForm, slug: e.target.value.toLowerCase().replace(/\s+/g, '_')})} placeholder="inventory"/></div>
+                <div><Label>الأيقونة</Label><input className="field" value={programForm.icon} onChange={e=>setProgramForm({...programForm, icon: e.target.value})} placeholder="📦"/></div>
+              </div>
+              <div style={{display:"grid", gap:8, marginTop:8}}>
+                <div><Label>اسم البرنامج</Label><input className="field" value={programForm.name} onChange={e=>setProgramForm({...programForm, name: e.target.value})} placeholder="المخزون"/></div>
+                <div><Label>الوصف</Label><input className="field" value={programForm.description} onChange={e=>setProgramForm({...programForm, description: e.target.value})} placeholder="إدارة المخزون والمنتجات"/></div>
+                <div style={{display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:8}}>
+                  <div><Label>اللون</Label><input className="field" type="color" value={programForm.color} onChange={e=>setProgramForm({...programForm, color: e.target.value})}/></div>
+                  <div><Label>المسار</Label><input className="field" value={programForm.route} onChange={e=>setProgramForm({...programForm, route: e.target.value})} placeholder="/inventory"/></div>
+                  <div><Label>الترتيب</Label><input className="field" type="number" value={programForm.sort_order} onChange={e=>setProgramForm({...programForm, sort_order: parseInt(e.target.value)||0})}/></div>
+                </div>
+              </div>
+              <button className="btn" onClick={async()=>{
+                if (!programForm.slug || !programForm.name) return showToast('أدخل slug واسم البرنامج');
+                try {
+                  const { data, error } = await supabase.rpc('admin_create_program', {
+                    prog_slug: programForm.slug,
+                    prog_name: programForm.name,
+                    prog_description: programForm.description,
+                    prog_icon: programForm.icon,
+                    prog_color: programForm.color,
+                    prog_route: programForm.route,
+                    prog_sort_order: programForm.sort_order
+                  });
+                  if (error) throw error;
+                  const { data: allProgs } = await supabase.from('programs').select('*').order('sort_order');
+                  if (allProgs) setAllPrograms(allProgs);
+                  setProgramForm({ slug: '', name: '', description: '', icon: '📦', color: '#C9A24B', route: '', sort_order: 0 });
+                  showToast('✅ تم إنشاء البرنامج');
+                } catch (err) {
+                  showToast('❌ ' + err.message);
+                }
+              }} style={{marginTop:10, background:GOLD, color:INK, borderRadius:8, padding:"8px 14px", fontWeight:700}}>إنشاء البرنامج</button>
+            </div>
+
+            {/* Programs list */}
+            <div style={{display:"grid", gap:8, maxHeight:"40vh", overflowY:"auto"}}>
+              {allPrograms.map(p=>(
+                <div key={p.id} className="card" style={{padding:12, border:`1px solid ${p.is_active ? TEAL : LINE}`, background: p.is_active ? `${TEAL}0A` : CARD_SOFT}}>
+                  <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", gap:8, flexWrap:"wrap"}}>
+                    <div style={{display:"flex", alignItems:"center", gap:10}}>
+                      <div style={{fontSize:24}}>{p.icon}</div>
+                      <div>
+                        <div style={{fontWeight:800, fontSize:12, display:"flex", alignItems:"center", gap:6}}>{p.name} <span style={{fontSize:10, color:MUTED}}>({p.slug})</span> {p.is_active ? <span style={{background:`${TEAL}22`, color:TEAL, fontSize:9, padding:"2px 5px", borderRadius:999}}>✅ مفعل</span> : <span style={{background:`${RED}22`, color:RED, fontSize:9, padding:"2px 5px", borderRadius:999}}>❌ معطل</span>}</div>
+                        <div style={{fontSize:11, color:MUTED}}>{p.description} · {p.route} · ترتيب: {p.sort_order}</div>
+                      </div>
+                    </div>
+                    <div style={{display:"flex", gap:6, flexWrap:"wrap"}}>
+                      <button className="btn" onClick={async()=>{
+                        const { error } = await supabase.from('programs').update({ is_active: !p.is_active }).eq('id', p.id);
+                        if (!error) {
+                          setAllPrograms(prev=>prev.map(x=>x.id===p.id ? {...x, is_active: !x.is_active} : x));
+                          showToast(p.is_active ? 'تم تعطيل البرنامج' : 'تم تفعيل البرنامج');
+                        }
+                      }} style={{background: p.is_active ? `${RED}22` : `${TEAL}22`, border:`1px solid ${p.is_active ? RED : TEAL}`, color: p.is_active ? RED : TEAL, borderRadius:8, padding:"4px 8px", fontSize:11}}>{p.is_active ? 'تعطيل' : 'تفعيل'}</button>
+                      <button className="btn" onClick={()=>{
+                        setProgramForm({ slug: p.slug, name: p.name, description: p.description || '', icon: p.icon || '📦', color: p.color || '#C9A24B', route: p.route || '', sort_order: p.sort_order || 0 });
+                      }} style={{background:CARD, border:`1px solid ${LINE}`, color:PAPER, borderRadius:8, padding:"4px 8px", fontSize:11}}><Pencil size={12}/> تعديل</button>
+                    </div>
+                  </div>
+                  {/* Assign to orgs */}
+                  <div style={{marginTop:8, display:"flex", gap:6, flexWrap:"wrap"}}>
+                    {allOrgs.slice(0,5).map(org=>(
+                      <button key={org.id} className="btn" onClick={async()=>{
+                        try {
+                          const { error } = await supabase.rpc('admin_assign_program_to_org', { target_org_id: org.id, target_program_slug: p.slug, is_active: true });
+                          if (error) throw error;
+                          showToast(`تم إعطاء ${p.name} لـ ${org.name}`);
+                        } catch (err) { showToast(err.message); }
+                      }} style={{background:`${GOLD}15`, border:`1px solid ${GOLD}33`, color:GOLD, borderRadius:6, padding:"3px 6px", fontSize:9}}>{org.name.slice(0,10)} +{p.icon}</button>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div style={{background:`${GOLD}12`, borderRadius:8, padding:10, border:`1px solid ${GOLD}33`}}>
+              <div style={{fontSize:11, color:GOLD, fontWeight:700}}>💡 كيف يشتغل النظام:</div>
+              <div style={{fontSize:11, color:MUTED, marginTop:4}}>1. Super Admin ينشئ برنامج (موديول) جديد - مثلا "المخزون" 📦<br/>2. يفعّله ويعطيه لمنظمة معينة (اشتراك)<br/>3. يعطي صلاحية لليوزرز داخل المنظمة (viewer/editor/admin)<br/>4. اليوزر بعد الـ login بيشوف أيقونات الموديولز اللي اله صلاحية فيها<br/>5. حاليا بوصلة 🧭 هو الوحيد الشغال - الباقي قيد التطوير</div>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* Programs Launcher - Shows when user has multiple programs */}
+      {availablePrograms.length > 1 && (
+        <div className="card" style={{ maxWidth: 980, margin: "0 auto 18px", padding: 16, borderColor: TEAL }}>
+          <div style={{display:"flex", alignItems:"center", gap:8, marginBottom:12}}>
+            <span style={{fontSize:16}}>🧩</span>
+            <span style={{fontWeight:800, fontSize:14}}>برامجي ({availablePrograms.length}) - اختر الموديول</span>
+            <span style={{fontSize:11, color:MUTED, marginInlineStart:"auto"}}>كل موديول اله صلاحية حسب اشتراك المنظمة</span>
+          </div>
+          <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(140px, 1fr))", gap:10}}>
+            {availablePrograms.map(p=>(
+              <button
+                key={p.slug || p.program_id}
+                onClick={()=>{
+                  setSelectedProgram(p.slug);
+                  localStorage.setItem('bousala_program', p.slug);
+                  if (p.slug !== 'bousala') {
+                    showToast(`موديول ${p.program_name || p.name} قريباً - حالياً بوصلة فقط شغال`);
+                  }
+                }}
+                className="card"
+                style={{
+                  padding:14,
+                  border:`2px solid ${selectedProgram===p.slug ? (p.color || GOLD) : LINE}`,
+                  background: selectedProgram===p.slug ? `${p.color || GOLD}18` : CARD_SOFT,
+                  borderRadius:12,
+                  display:"flex",
+                  flexDirection:"column",
+                  alignItems:"center",
+                  gap:8,
+                  cursor:"pointer",
+                  transition:"all 0.2s"
+                }}
+              >
+                <div style={{fontSize:28}}>{p.icon || '📦'}</div>
+                <div style={{fontWeight:800, fontSize:12, textAlign:"center"}}>{p.program_name || p.name}</div>
+                <div style={{fontSize:10, color:MUTED, textAlign:"center"}}>{p.role || 'viewer'} · {p.org_name || orgName}</div>
+                {selectedProgram===p.slug && <div style={{fontSize:9, background:p.color || GOLD, color:INK, padding:"2px 6px", borderRadius:999, fontWeight:800}}>مفتوح</div>}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* If selected program is not bousala, show coming soon */}
+      {selectedProgram !== 'bousala' && (
+        <div className="card" style={{ maxWidth: 980, margin: "0 auto 18px", padding: 30, textAlign:"center", borderColor: GOLD }}>
+          <div style={{fontSize:48, marginBottom:12}}>{availablePrograms.find(p=>p.slug===selectedProgram)?.icon || '📦'}</div>
+          <div style={{fontSize:20, fontWeight:900}}>{availablePrograms.find(p=>p.slug===selectedProgram)?.program_name || selectedProgram}</div>
+          <div style={{fontSize:13, color:MUTED, marginTop:8}}>هذا الموديول قيد التطوير - حالياً بوصلة هو الموديول الشغال الوحيد</div>
+          <div style={{fontSize:11, color:MUTED, marginTop:4}}>سيتم تفعيله عند إعداد البرنامج من قبل Super Admin</div>
+          <button className="btn" onClick={()=>{
+            setSelectedProgram('bousala');
+            localStorage.setItem('bousala_program', 'bousala');
+          }} style={{marginTop:16, background:GOLD, color:INK, borderRadius:8, padding:"8px 16px", fontWeight:700}}>العودة لبوصلة 🧭</button>
+        </div>
+      )}
+
+      {/* Month selector - Only show for bousala */}
+      {selectedProgram === 'bousala' && <div className="card" style={{ maxWidth: 980, margin: "0 auto 18px", padding: 14, borderColor: GOLD }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
           <div>
             <div style={{ fontWeight: 800, fontSize: 14 }}>{t("monthSelectorTitle")}</div>
@@ -2689,8 +2894,9 @@ export default function App() {
             {selectedMonthLabel}
           </div>
         </div>
-      </div>
+      </div>}
 
+      {selectedProgram === 'bousala' && <>
       {/* Compact top actions - FIXED with logout button */}
       <div style={{ maxWidth: 980, margin: "0 auto 18px", display: "flex", justifyContent: "flex-end", gap: 8, position: "relative" }}>
         <button className="btn" onClick={logout} style={{ background: "#C1523B", color: "#fff", border: `1px solid #C1523B`, borderRadius: 9, padding: "8px 13px", fontWeight: 700, display: "flex", alignItems: "center", gap: 6 }}><LogOut size={14} /> {t("logout")}</button>
