@@ -4,24 +4,18 @@ import {
   ResponsiveContainer, CartesianGrid, Legend
 } from "recharts";
 import * as XLSX from "xlsx";
-import { Plus, ClipboardPaste, Target, TrendingUp, Wallet, AlertTriangle, X, Check, Pencil, Baby, Clock, Bell, PiggyBank, BarChart3, Languages, Download, Upload, Settings, Search, ArrowUpDown, LogOut, ChevronDown, Eye, Link2, Lock, User, SlidersHorizontal } from "lucide-react";
+import { Plus, ClipboardPaste, Target, TrendingUp, Wallet, AlertTriangle, X, Check, Pencil, Baby, Clock, Bell, PiggyBank, BarChart3, Languages, Download, Upload, Settings, Search, ArrowUpDown, LogOut, ChevronDown, Eye, Link2, Lock, User, SlidersHorizontal, Shield, Building2 } from "lucide-react";
+import { createClient } from "@supabase/supabase-js";
 
-// Plain localStorage-backed persistence for a normal standalone browser app (this is a real
-// key/value browser store — appropriate here, unlike inside a Claude.ai artifact sandbox).
-// Kept as a local variable (not attached to `window`) so it can't collide with anything else.
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+const supabase = createClient(supabaseUrl, supabaseAnonKey);
+
+// ---------- Supabase Client replaced storage ----------
 const storage = {
-  async get(key) {
-    const value = localStorage.getItem(key);
-    return value === null ? null : { value };
-  },
-  async set(key, value) {
-    localStorage.setItem(key, value);
-    return true;
-  },
-  async delete(key) {
-    localStorage.removeItem(key);
-    return true;
-  },
+  async get(k){ return null; },
+  async set(k,v){ return true; },
+  async delete(k){ return true; }
 };
 
 // ---------- Design tokens ----------
@@ -995,6 +989,113 @@ function makeT(lang) {
 const FUNDING_KEYS = { auto: "fundingAuto", fixed: "fundingFixed" };
 
 export default function App() {
+
+  // ---------- V2 Supabase State ----------
+  const [supabaseUser, setSupabaseUser] = useState(null);
+  const [currentOrgId, setCurrentOrgId] = useState(() => localStorage.getItem("bousala_org") || null);
+  const [profile, setProfile] = useState(null);
+  const [isSuperAdmin, setIsSuperAdmin] = useState(false);
+  const [allOrgs, setAllOrgs] = useState([]);
+  const [orgName, setOrgName] = useState("");
+  const [loadingData, setLoadingData] = useState(true);
+
+  const fetchProfileAndOrg = async (userId) => {
+    const { data: prof } = await supabase.from('profiles').select('*').eq('id', userId).single();
+    if (prof) {
+      setProfile(prof);
+      setIsSuperAdmin(!!prof.is_super_admin);
+    }
+    // Fetch orgs where user is member - RLS open now
+    const { data: orgs } = await supabase.from('organizations').select('*').order('created_at', { ascending: false });
+    if (orgs) {
+      setAllOrgs(orgs);
+      let targetOrgId = currentOrgId;
+      if (!targetOrgId) {
+        const { data: membership } = await supabase.from('organization_members').select('organization_id').eq('user_id', userId).limit(1).single();
+        targetOrgId = membership?.organization_id || orgs[0]?.id;
+      }
+      if (targetOrgId) {
+        setCurrentOrgId(targetOrgId);
+        localStorage.setItem("bousala_org", targetOrgId);
+        const found = orgs.find(o=>o.id===targetOrgId);
+        if (found) setOrgName(found.name);
+        return targetOrgId;
+      }
+    }
+    return currentOrgId;
+  };
+
+  const fetchAllData = async (orgId) => {
+    if (!orgId) return;
+    setLoadingData(true);
+    try {
+      const [
+        { data: entriesData },
+        { data: incomeData },
+        { data: fixedData },
+        { data: fixedHistData },
+        { data: childrenData },
+        { data: yearsData },
+        { data: installmentsData },
+        { data: goalsData },
+        { data: anchorsData },
+        { data: categoriesData },
+      ] = await Promise.all([
+        supabase.from('expense_entries').select('*').eq('organization_id', orgId).order('date', { ascending: false }),
+        supabase.from('income_sources').select('*').eq('organization_id', orgId),
+        supabase.from('fixed_expenses').select('*').eq('organization_id', orgId),
+        supabase.from('fixed_expense_amount_history').select('*'),
+        supabase.from('children').select('*').eq('organization_id', orgId),
+        supabase.from('school_years').select('*').eq('organization_id', orgId),
+        supabase.from('installments').select('*').eq('organization_id', orgId).order('month', { ascending: true }),
+        supabase.from('goals').select('*').eq('organization_id', orgId),
+        supabase.from('fiscal_anchors').select('*').eq('organization_id', orgId),
+        supabase.from('categories').select('*').eq('organization_id', orgId),
+      ]);
+      if (entriesData) setEntries(entriesData.map(e=>({ ...e, linkedFixedExpenseId: e.linked_fixed_expense_id })));
+      if (incomeData) setIncomeSources(incomeData.map(i=>({ id: i.id, name: i.name, amount: Number(i.amount), startDate: i.start_date, endDate: i.end_date })));
+      if (fixedData) {
+        setFixedExpenses(fixedData.map(f=>{
+          const hist = (fixedHistData||[]).filter(h=>h.fixed_expense_id===f.id).map(h=>({ id: h.id, amount: Number(h.amount), effectiveFrom: h.effective_from }));
+          return { id: f.id, name: f.name, amount: Number(f.current_amount), startDate: f.start_date, endDate: f.end_date, amountHistory: hist.length?hist:[{ id: `${f.id}-a0`, amount: Number(f.current_amount), effectiveFrom: f.start_date }] };
+        }));
+      }
+      if (childrenData && yearsData && installmentsData) {
+        const reconstructed = childrenData.map(c=>{
+          const yrs = (yearsData||[]).filter(y=>y.child_id===c.id).map(y=>{
+            const insts = (installmentsData||[]).filter(ins=>ins.year_id===y.id).map(ins=>({
+              id: ins.id,
+              month: ins.month,
+              amount: Number(ins.amount),
+              paid: ins.paid,
+              paidAmount: Number(ins.paid_amount||0),
+              paymentDate: ins.payment_date,
+              locked: ins.locked,
+              isDownPayment: ins.is_down_payment
+            }));
+            return { id: y.id, label: y.label, stage: y.stage, annualFee: Number(y.annual_fee), downPayment: Number(y.down_payment), downPaymentDate: y.down_payment_date, installmentsCount: y.installments_count, startDate: y.start_date, installments: insts };
+          });
+          return { id: c.id, name: c.name, years: yrs };
+        });
+        setChildren(reconstructed);
+        const exp = {};
+        reconstructed.forEach(c=>c.years.forEach(y=>exp[y.id]=true));
+        setExpandedYears(exp);
+      }
+      if (goalsData) setGoals(goalsData.map(g=>({ id: g.id, name: g.name, target: Number(g.target_amount), saved: Number(g.current_amount), deadline: g.deadline, funding: 'auto', fixedAmount: '', priority: '0' })));
+      if (anchorsData) {
+        const anc = {};
+        anchorsData.forEach(a=>anc[a.month_key]=a.start_date);
+        setFiscalAnchors(anc);
+      }
+      if (categoriesData && categoriesData.length>0) {
+        setCategories(categoriesData.map(c=>({ key: c.key, color: c.color, words: c.words||[] })));
+      }
+    } catch (e) { console.error(e); }
+    finally { setLoadingData(false); setLoaded(true); }
+  };
+
+
   const [lang, setLang] = useState("ar");
   const t = useMemo(() => makeT(lang), [lang]);
   const dir = lang === "en" ? "ltr" : "rtl";
@@ -1093,190 +1194,121 @@ export default function App() {
   const [showRecentModal, setShowRecentModal] = useState(false);
   const [fixedDetailId, setFixedDetailId] = useState(null);
   const [showAllFixedDetails, setShowAllFixedDetails] = useState(false);
-  // ---------- local account (browser-only protection) ----------
-  async function hashPassword(value) {
-    if (window.crypto?.subtle) {
-      const data = new TextEncoder().encode(value);
-      const digest = await window.crypto.subtle.digest("SHA-256", data);
-      return Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, "0")).join("");
-    }
-    return btoa(unescape(encodeURIComponent(value)));
-  }
-
+  // ---------- Supabase Auth V2 ----------
+  async function hashPassword(v){ return v; }
   async function submitAuth() {
-    const username = loginUser.trim();
-    if (!username || !loginPassword) return setAuthError(t("authRequired"));
-    if (loginMode === "setup") {
-      if (loginPassword.length < 4) return setAuthError(t("authPasswordShort"));
-      if (loginPassword !== loginPassword2) return setAuthError(t("authPasswordsMismatch"));
-      const passwordHash = await hashPassword(loginPassword);
-      localStorage.setItem("expense-auth", JSON.stringify({ username, passwordHash }));
-      // Use sessionStorage: survives refresh, cleared when browser closed
-      sessionStorage.setItem("auth-session", JSON.stringify({ user: username, timestamp: Date.now() }));
-      setIsAuthenticated(true); 
-      setSelectedMonth(currentMonthKey); // Go to current month on login
-      setAuthError(""); setLoginPassword(""); setLoginPassword2("");
-      showToast(t("authCreated"));
-      return;
-    }
-    const savedRaw = localStorage.getItem("expense-auth");
-    if (!savedRaw) { setLoginMode("setup"); setAuthError(""); return; }
+    const email = loginUser.trim();
+    if (!email || !loginPassword) return setAuthError(t("authRequired"));
+    setAuthError("");
     try {
-      const saved = JSON.parse(savedRaw);
-      const passwordHash = await hashPassword(loginPassword);
-      if (saved.username === username && saved.passwordHash === passwordHash) {
-        sessionStorage.setItem("auth-session", JSON.stringify({ user: username, timestamp: Date.now() }));
-        setIsAuthenticated(true); 
-        setSelectedMonth(currentMonthKey); // Go to current month on login
-        setAuthError(""); setLoginPassword("");
-      } else setAuthError(t("authInvalid"));
-    } catch { setAuthError(t("authInvalid")); }
+      if (loginMode === "setup") {
+        if (loginPassword.length < 6) return setAuthError("كلمة المرور 6 أحرف على الأقل");
+        if (loginPassword !== loginPassword2) return setAuthError(t("authPasswordsMismatch"));
+        const { data, error } = await supabase.auth.signUp({ email, password: loginPassword });
+        if (error) return setAuthError(error.message);
+        if (data.user) {
+          await supabase.from('profiles').insert({ id: data.user.id, username: email.split('@')[0], full_name: email.split('@')[0] });
+          const { data: org } = await supabase.from('organizations').insert({ name: 'حسابي الشخصي', owner_id: data.user.id, created_by: data.user.id }).select().single();
+          if (org) {
+            await supabase.from('organization_members').insert({ organization_id: org.id, user_id: data.user.id, role: 'owner' });
+            const { data: prog } = await supabase.from('programs').select('id').eq('slug','bousala').single();
+            if (prog) await supabase.from('organization_subscriptions').insert({ organization_id: org.id, program_id: prog.id });
+            setCurrentOrgId(org.id);
+            localStorage.setItem("bousala_org", org.id);
+          }
+          setSupabaseUser(data.user);
+          setIsAuthenticated(true);
+          showToast(t("authCreated"));
+        }
+      } else {
+        const { data, error } = await supabase.auth.signInWithPassword({ email, password: loginPassword });
+        if (error) return setAuthError(t("authInvalid") + ": " + error.message);
+        setSupabaseUser(data.user);
+        setIsAuthenticated(true);
+      }
+    } catch (e) { setAuthError(e.message); }
   }
-
-  function logout() {
+  async function logout() {
+    await supabase.auth.signOut();
     setIsAuthenticated(false);
+    setSupabaseUser(null);
     setLoginPassword("");
     setShowSettingsModal(false);
     setShowExportMenu(false);
-    sessionStorage.removeItem("auth-session");
-    localStorage.removeItem("auth-session"); // Clean old storage
-    storage.delete("auth-session").catch(()=>{});
+    localStorage.removeItem("bousala_org");
+    setCurrentOrgId(null);
   }
 
-  // ---------- load - FIXED: sessionStorage for refresh persistence, cleared on browser close ----------
+
+  // ---------- Supabase Auth & Initial Load V2 ----------
   useEffect(() => {
-    (async () => {
-      try {
-        // Check sessionStorage first (survives refresh, cleared on browser close)
-        let sessRaw = sessionStorage.getItem("auth-session");
-        // Fallback to old localStorage for migration, then move to sessionStorage
-        if (!sessRaw) {
-          const oldSess = await storage.get("auth-session");
-          if (oldSess && oldSess.value) {
-            sessRaw = oldSess.value;
-            // Migrate to sessionStorage
-            sessionStorage.setItem("auth-session", sessRaw);
-            storage.delete("auth-session").catch(()=>{});
-            localStorage.removeItem("auth-session");
-          } else {
-            sessRaw = localStorage.getItem("auth-session");
-            if (sessRaw) {
-              sessionStorage.setItem("auth-session", sessRaw);
-              localStorage.removeItem("auth-session");
-            }
-          }
-        }
-        if (sessRaw) {
-          try {
-            const parsed = JSON.parse(sessRaw);
-            // Session valid - no 30-day check, sessionStorage auto-clears on browser close
-            if (parsed && parsed.user) {
-              setIsAuthenticated(true);
-              setLoginUser(parsed.user);
-            }
-          } catch {}
-        }
-      } catch {}
-      try {
-        const e = await storage.get("expense-entries");
-        if (e) setEntries(JSON.parse(e.value));
-      } catch (err) {}
-      try {
-        const s = await storage.get("expense-settings");
-        if (s) {
-          const parsed = JSON.parse(s.value);
-          if (parsed.incomeSources) {
-            setIncomeSources(parsed.incomeSources);
-          } else if (parsed.income) {
-            // migrate old single-number income into one always-active source, so nothing is lost
-            setIncomeSources([{ id: "income-migrated", name: "راتب", amount: parsed.income, startDate: "2000-01-01", endDate: null }]);
-          }
-          setGoals(parsed.goals || []);
-          setFixedExpenses(migrateFixedExpenses(parsed.fixedExpenses || []));
-          setCategories(parsed.categories && parsed.categories.length ? parsed.categories : DEFAULT_CATEGORIES);
-          setSavingsLog(parsed.savingsLog || []);
-          setBudgets(parsed.budgets || []);
-          // Additive field with a safe default (empty = plain calendar months), so older saved
-          // data that predates this feature is read exactly as before — nothing is lost or altered.
-          setFiscalAnchors(parsed.fiscalAnchors && typeof parsed.fiscalAnchors === "object" ? parsed.fiscalAnchors : {});
-          const migrated = migrateChildren(parsed.children || []);
-          const normalizedChildren = migrated.map((c) => ({
-            ...c,
-            years: (c.years || []).map((y) => ({
-              ...y,
-              installments: (y.installments || []).map((ins) => {
-                // One-time correction for the existing school/university installment
-                // that was recorded as fully paid (420) although only 210 was paid
-                // on 2026-08-29. Keep the original installment amount at 420 and
-                // track the actual payment as 210, leaving 210 outstanding.
-                const isKnownPartialPayment =
-                  Number(ins.amount) === 420 &&
-                  (ins.paymentDate || '') === '2026-08-29';
-                return {
-                  ...ins,
-                  paidAmount: isKnownPartialPayment ? 210 : installmentPaidAmount(ins),
-                  paid: isKnownPartialPayment ? false : !!ins.paid,
-                  paymentDate: ins.paymentDate || null,
-                };
-              }),
-            })),
-          }));
-          setChildren(normalizedChildren);
-          const expanded = {};
-          normalizedChildren.forEach((c) => (c.years || []).forEach((y) => (expanded[y.id] = true)));
-          setExpandedYears(expanded);
-        }
-      } catch (err) {}
-      try {
-        const l = await storage.get("expense-lang");
-        if (l && (l.value === "ar" || l.value === "en")) setLang(l.value);
-      } catch (err) {}
-      setLoaded(true);
-      const savedAuth = localStorage.getItem("expense-auth");
-      if (savedAuth) {
-        try {
-          const a = JSON.parse(savedAuth);
-          setLoginUser(a.username || "");
-          setLoginMode("login");
-        } catch { setLoginMode("setup"); }
+    const init = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user) {
+        setSupabaseUser(session.user);
+        setIsAuthenticated(true);
+        setLoginUser(session.user.email);
+        const orgId = await fetchProfileAndOrg(session.user.id);
+        if (orgId) await fetchAllData(orgId);
+        else { setLoaded(true); setAuthReady(true); }
       } else {
-        setLoginMode("setup");
+        setAuthReady(true);
+        setLoaded(true);
       }
-      setAuthReady(true);
-    })();
+    };
+    init();
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (session?.user) {
+        setSupabaseUser(session.user);
+        setIsAuthenticated(true);
+        setLoginUser(session.user.email);
+        const orgId = await fetchProfileAndOrg(session.user.id);
+        if (orgId) await fetchAllData(orgId);
+      } else {
+        setSupabaseUser(null);
+        setIsAuthenticated(false);
+        setAuthReady(true);
+      }
+    });
+    return () => subscription.unsubscribe();
   }, []);
+
+  useEffect(() => {
+    if (currentOrgId && supabaseUser) {
+      fetchAllData(currentOrgId);
+      localStorage.setItem("bousala_org", currentOrgId);
+      const org = allOrgs.find(o=>o.id===currentOrgId);
+      if (org) setOrgName(org.name);
+    }
+  }, [currentOrgId]);
+
 
   // Keep the new-entry date aligned with the month currently being reviewed.
   useEffect(() => {
     setForm((prev) => ({ ...prev, date: selectedMonthDefaultDate }));
   }, [selectedMonth]);
 
-  // ---------- persist ----------
-  useEffect(() => {
-    if (!loaded) return;
-    storage.set("expense-entries", JSON.stringify(entries)).catch(() => {});
-  }, [entries, loaded]);
-  useEffect(() => {
-    if (!loaded) return;
-    storage.set("expense-settings", JSON.stringify({ incomeSources, goals, fixedExpenses, children, categories, savingsLog, budgets, fiscalAnchors })).catch(() => {});
-  }, [incomeSources, goals, fixedExpenses, children, categories, savingsLog, budgets, fiscalAnchors, loaded]);
-  useEffect(() => {
-    if (!loaded) return;
-    storage.set("expense-lang", lang).catch(() => {});
-  }, [lang, loaded]);
+  // ---------- persist removed - Supabase handles it ----------
 
   function showToast(msg) {
     setToast(msg);
     setTimeout(() => setToast(""), 2200);
   }
 
-  function addManual() {
+  async function addManual() {
     const amt = parseFloat(form.amount);
     if (!amt || amt <= 0) return showToast(t("toastValidAmount"));
-    setEntries((prev) => [
-      { id: Math.random().toString(36).slice(2), date: form.date, amount: amt, note: form.note || t("defaultNoteText"), category: form.category, linkedFixedExpenseId: form.linkedFixedExpenseId || null },
-      ...prev,
-    ]);
+    if (!currentOrgId) return showToast("لا يوجد منظمة");
+    const { data, error } = await supabase.from('expense_entries').insert({
+      organization_id: currentOrgId,
+      date: form.date,
+      amount: amt,
+      note: form.note || t("defaultNoteText"),
+      category: form.category,
+      linked_fixed_expense_id: form.linkedFixedExpenseId || null
+    }).select().single();
+    if (error) { console.error(error); return showToast(error.message); }
+    setEntries((prev) => [{ id: data.id, date: data.date, amount: Number(data.amount), note: data.note, category: data.category, linkedFixedExpenseId: data.linked_fixed_expense_id }, ...prev]);
     setForm({ amount: "", note: "", category: form.category, date: selectedMonthDefaultDate, linkedFixedExpenseId: "" });
     showToast(t("toastAdded"));
   }
@@ -1306,7 +1338,9 @@ export default function App() {
   function removePending(id) {
     setPending((prev) => prev.filter((p) => p.id !== id));
   }
-  function removeEntry(id) {
+  async function removeEntry(id) {
+    const { error } = await supabase.from('expense_entries').delete().eq('id', id);
+    if (error) return showToast(error.message);
     setEntries((prev) => prev.filter((e) => e.id !== id));
   }
   function startEditEntry(e) {
@@ -1681,44 +1715,33 @@ export default function App() {
     setEditYearForm(null);
     showToast(t("toastYearUpdated"));
   }
-  function toggleInstallmentPaid(childId, yearId, installmentId) {
-    setChildren((prev) =>
-      prev.map((c) =>
-        c.id !== childId
-          ? c
-          : {
-              ...c,
-              years: c.years.map((y) =>
-                y.id !== yearId ? y : { ...y, installments: y.installments.map((ins) => {
-                  if (ins.id !== installmentId) return ins;
-                  const willBePaid = !ins.paid;
-                  const fullAmount = Number(ins.amount) || 0;
-                  return { 
-                    ...ins, 
-                    paid: willBePaid,
-                    paidAmount: willBePaid ? fullAmount : 0,
-                    paymentDate: willBePaid ? (ins.paymentDate || todayISO()) : null
-                  };
-                }) }
-              ),
-            }
-      )
-    );
+    async function toggleInstallmentPaid(childId, yearId, installmentId) {
+    // Find installment
+    let target = null;
+    for (const c of children) if (c.id===childId) for (const y of c.years) if (y.id===yearId) for (const ins of y.installments) if (ins.id===installmentId) target=ins;
+    if (!target) return;
+    const willBePaid = !target.paid;
+    const fullAmount = Number(target.amount)||0;
+    const newPaidAmount = willBePaid ? fullAmount : 0;
+    const newPaymentDate = willBePaid ? (target.paymentDate || todayISO()) : null;
+    const { error } = await supabase.from('installments').update({
+      paid: willBePaid,
+      paid_amount: newPaidAmount,
+      payment_date: newPaymentDate
+    }).eq('id', installmentId);
+    if (error) { console.error(error); return showToast(error.message); }
+    setChildren((prev) => prev.map((c) => c.id !== childId ? c : {
+      ...c,
+      years: c.years.map((y) => y.id !== yearId ? y : { ...y, installments: y.installments.map((ins) => ins.id !== installmentId ? ins : { ...ins, paid: willBePaid, paidAmount: newPaidAmount, paymentDate: newPaymentDate }) })
+    }));
   }
 
-  function updateInstallmentPaymentDate(childId, yearId, installmentId, newPaymentDate) {
-    setChildren((prev) =>
-      prev.map((c) =>
-        c.id !== childId
-          ? c
-          : {
-              ...c,
-              years: c.years.map((y) =>
-                y.id !== yearId ? y : { ...y, installments: y.installments.map((ins) => (ins.id === installmentId ? { ...ins, paymentDate: newPaymentDate || null } : ins)) }
-              ),
-            }
-      )
-    );
+    async function updateInstallmentPaymentDate(childId, yearId, installmentId, newPaymentDate) {
+    const { error } = await supabase.from('installments').update({ payment_date: newPaymentDate || null }).eq('id', installmentId);
+    if (error) return showToast(error.message);
+    setChildren((prev) => prev.map((c) => c.id !== childId ? c : {
+      ...c, years: c.years.map((y) => y.id !== yearId ? y : { ...y, installments: y.installments.map((ins) => ins.id === installmentId ? { ...ins, paymentDate: newPaymentDate || null } : ins) })
+    }));
   }
   function startEditInstallmentAmount(childId, yearId, ins) {
     setEditingInstallment({ childId, yearId, installmentId: ins.id });
@@ -2060,8 +2083,8 @@ export default function App() {
   }, [goals, calc.projectedRemaining]);
 
   // ---------- fixed monthly expenses status + linked transaction consumption ----------
-  // FIXED: use fiscal period (selectedMonthStart/End) not just calendar slice - so "آخر الحركات" affects the بند الأصلي
   const fixedCalc = useMemo(() => {
+    // FIXED: use calendar month only for fixed expenses
     const monthStart = `${selectedMonth}-01`;
     const monthEnd = lastDayOfMonthISO(monthStart);
     const list = fixedExpenses.map((f) => {
@@ -2074,7 +2097,7 @@ export default function App() {
       const elapsedMonths = f.endDate ? monthsBetween(f.startDate, monthEnd) : null;
       const progressPct = totalMonths ? Math.min(100, Math.max(0, (elapsedMonths / totalMonths) * 100)) : null;
       const amount = currentFixedAmount(f, monthEnd);
-      // FIX: use fiscal period (selectedMonthStart/End) so last movements affect original item
+      // FIX: use fiscal period (selectedMonthStart/End) so آخر الحركات affects original بند
       const consumed = entries.filter((e) => e.date && e.date >= selectedMonthStart && e.date <= selectedMonthEnd && e.linkedFixedExpenseId === f.id).reduce((sum, e) => sum + e.amount, 0);
       const remaining = Math.max(amount - consumed, 0);
       const consumptionPct = amount > 0 ? Math.min(100, (consumed / amount) * 100) : 0;
