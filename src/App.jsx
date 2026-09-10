@@ -2506,54 +2506,160 @@ export default function App() {
 
       
       {/* Users Management - Super Admin Only - Shows user info without financial details */}
+            {/* Users Management - Super Admin Only - Enhanced with full edit */}
       {showUsersManagement && (
-        <Modal title="إدارة المستخدمين - Super Admin" onClose={()=>setShowUsersManagement(false)} dir={dir}>
+        <Modal title="إدارة المستخدمين - Super Admin (كامل)" onClose={()=>setShowUsersManagement(false)} dir={dir}>
           <div style={{display:"flex", flexDirection:"column", gap:14}}>
             <div style={{background:CARD_SOFT, borderRadius:10, padding:12, border:`1px solid ${LINE}`}}>
-              <div style={{display:"flex", alignItems:"center", gap:8, marginBottom:8}}>
+              <div style={{display:"flex", alignItems:"center", gap:8, marginBottom:8, flexWrap:"wrap"}}>
                 <Shield size={16} color={GOLD}/>
-                <span style={{fontWeight:800, fontSize:14}}>المستخدمين ({allUsers.length}) - معلومات فقط بدون تفاصيل مالية</span>
+                <span style={{fontWeight:800, fontSize:14}}>المستخدمين ({allUsers.length}) - إدارة كاملة</span>
+                <button className="btn" onClick={async()=>{
+                  try {
+                    const { data, error } = await supabase.from('users_admin_view').select('*').order('user_created_at', { ascending: false });
+                    if (!error && data) {
+                      setAllUsers(data.map(p=>({ ...p, orgNames: [], orgCount: p.org_count || 0 })));
+                      showToast('تم التحديث - مع الإيميلات');
+                      return;
+                    }
+                    throw error || new Error('View not ready');
+                  } catch (e) {
+                    console.log('Fallback to profiles:', e.message);
+                    const { data: profiles } = await supabase.from('profiles').select('*').order('created_at', { ascending: false });
+                    const { data: allMembers } = await supabase.from('organization_members').select('user_id, organization_id');
+                    const { data: allOrgsData } = await supabase.from('organizations').select('id, name');
+                    const orgMap = {}; allOrgsData?.forEach(o=>{ orgMap[o.id]=o.name; });
+                    const enriched = profiles?.map(p=>{
+                      const memberOrgs = allMembers?.filter(m=>m.user_id===p.id) || [];
+                      const orgNames = memberOrgs.map(m=>orgMap[m.organization_id] || m.organization_id.slice(0,6));
+                      return { ...p, email: p.username, orgNames, orgCount: memberOrgs.length };
+                    }) || [];
+                    setAllUsers(enriched);
+                    showToast('تم التحديث');
+                  }
+                }} style={{marginInlineStart:"auto", background:CARD, border:`1px solid ${LINE}`, color:PAPER, borderRadius:8, padding:"4px 8px", fontSize:11}}>🔄 تحديث</button>
               </div>
-              <div style={{fontSize:11, color:MUTED}}>يعرض فقط: اسم المستخدم، تاريخ الإنشاء، عدد المنظمات، حالة Super Admin - لا يعرض حركات أو أقساط أو مصاريف</div>
+              <div style={{fontSize:11, color:MUTED}}>يعرض: الإيميل الكامل، اسم المستخدم، الاسم الكامل، تاريخ الإنشاء، آخر دخول، عدد المنظمات، حالة التأكيد - بدون تفاصيل مالية - مع إمكانية التعديل</div>
             </div>
             
-            <div style={{display:"grid", gap:8, maxHeight:"60vh", overflowY:"auto"}}>
-              {allUsers.map(u=>(
-                <div key={u.id} className="card" style={{padding:12, border:`1px solid ${u.is_super_admin ? GOLD : LINE}`, background: u.is_super_admin ? `${GOLD}0A` : CARD_SOFT}}>
-                  <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:8}}>
-                    <div>
-                      <div style={{fontWeight:800, fontSize:13, display:"flex", alignItems:"center", gap:6}}>
-                        {u.username || u.full_name || 'مستخدم'} 
-                        {u.is_super_admin && <span style={{background:GOLD, color:INK, fontSize:9, padding:"2px 6px", borderRadius:999, fontWeight:800}}><Shield size={9}/> SUPER ADMIN</span>}
+            <div style={{display:"grid", gap:10, maxHeight:"65vh", overflowY:"auto"}}>
+              {allUsers.map(u=>{
+                const isEditing = !!u._editMode;
+                const editForm = u._editForm || { email: u.email || '', username: u.username || '', full_name: u.full_name || '' };
+                const setEditMode = (val)=>setAllUsers(prev=>prev.map(x=>x.id===u.id ? {...x, _editMode: val, _editForm: val ? { email: x.email || '', username: x.username || '', full_name: x.full_name || '' } : undefined} : x));
+                const setEditForm = (f)=>setAllUsers(prev=>prev.map(x=>x.id===u.id ? {...x, _editForm: {...(x._editForm || {}), ...f}} : x));
+                
+                return (
+                <div key={u.id} className="card" style={{padding:14, border:`1px solid ${u.is_super_admin ? GOLD : LINE}`, background: u.is_super_admin ? `${GOLD}0A` : CARD_SOFT}}>
+                  {!isEditing ? (
+                    <div style={{display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:10, flexWrap:"wrap"}}>
+                      <div style={{flex:1, minWidth:220}}>
+                        <div style={{fontWeight:800, fontSize:13, display:"flex", alignItems:"center", gap:6, flexWrap:"wrap"}}>
+                          <span style={{direction:"ltr", display:"inline-block", background:CARD, padding:"2px 6px", borderRadius:4}}>{u.email || u.username}</span>
+                          {u.is_super_admin && <span style={{background:GOLD, color:INK, fontSize:9, padding:"2px 6px", borderRadius:999, fontWeight:800, display:"inline-flex", alignItems:"center", gap:3}}><Shield size={9}/> SUPER ADMIN</span>}
+                          {u.email_confirmed_at ? <span style={{background:`${TEAL}22`, color:TEAL, fontSize:9, padding:"2px 5px", borderRadius:999}}>✅ مؤكد</span> : <span style={{background:`${RED}22`, color:RED, fontSize:9, padding:"2px 5px", borderRadius:999}}>❌ غير مؤكد</span>}
+                        </div>
+                        <div style={{fontSize:11, color:PAPER, marginTop:8, display:"grid", gap:4, background:INK, padding:8, borderRadius:6}}>
+                          <div><span style={{color:MUTED}}>📧 الإيميل:</span> <span style={{direction:"ltr", color:GOLD}}>{u.email}</span></div>
+                          <div><span style={{color:MUTED}}>👤 المستخدم:</span> {u.username || '—'} · <span style={{color:MUTED}}>الاسم:</span> {u.full_name || '—'}</div>
+                          <div><span style={{color:MUTED}}>🆔 ID:</span> {u.id.slice(0,8)}... · <span style={{color:MUTED}}>📅 أنشئ:</span> {u.user_created_at ? new Date(u.user_created_at).toLocaleDateString('ar-JO') : u.profile_created_at ? new Date(u.profile_created_at).toLocaleDateString('ar-JO') : u.created_at ? new Date(u.created_at).toLocaleDateString('ar-JO') : '—'} {u.last_sign_in_at ? `· آخر دخول: ${new Date(u.last_sign_in_at).toLocaleDateString('ar-JO')}` : '· لم يدخل بعد'}</div>
+                          <div><span style={{color:MUTED}}>🏢 المنظمات:</span> {u.orgNames?.join(', ') || 'لا يوجد'} ({u.orgCount || u.org_count || 0})</div>
+                        </div>
                       </div>
-                      <div style={{fontSize:11, color:MUTED, marginTop:3}}>ID: {u.id.slice(0,8)}... · أنشئ: {u.created_at ? new Date(u.created_at).toLocaleDateString('ar-JO') : '—'}</div>
-                      <div style={{fontSize:11, color:MUTED, marginTop:2}}>المنظمات: {u.orgNames?.join(', ') || 'لا يوجد'} ({u.orgCount})</div>
+                      <div style={{display:"flex", flexDirection:"column", gap:6, minWidth:130}}>
+                        <button className="btn" onClick={()=>setEditMode(true)} style={{background:CARD, border:`1px solid ${GOLD}`, color:GOLD, borderRadius:8, padding:"6px 10px", fontSize:11, fontWeight:700, display:"flex", alignItems:"center", gap:5}}><Pencil size={12}/> تعديل البيانات</button>
+                        <button className="btn" onClick={async()=>{
+                          const { error } = await supabase.from('profiles').update({ is_super_admin: !u.is_super_admin }).eq('id', u.id);
+                          if (!error) {
+                            setAllUsers(prev=>prev.map(x=>x.id===u.id ? {...x, is_super_admin: !x.is_super_admin} : x));
+                            showToast(u.is_super_admin ? 'تم إزالة Super Admin' : 'تم جعله Super Admin');
+                          } else showToast(error.message);
+                        }} style={{background: u.is_super_admin ? `${RED}22` : `${GOLD}22`, border:`1px solid ${u.is_super_admin ? RED : GOLD}`, color: u.is_super_admin ? RED : GOLD, borderRadius:8, padding:"6px 10px", fontSize:11, fontWeight:700}}>
+                          {u.is_super_admin ? 'إزالة Super Admin' : 'جعله Super Admin'}
+                        </button>
+                        <button className="btn" onClick={async()=>{
+                          if (!confirm(`حذف المستخدم ${u.email}? لا يمكن التراجع!`)) return;
+                          try {
+                            const { error } = await supabase.rpc('admin_delete_user', { target_user_id: u.id });
+                            if (error) throw error;
+                            setAllUsers(prev=>prev.filter(x=>x.id!==u.id));
+                            showToast('تم الحذف');
+                          } catch (err) {
+                            // Fallback: try direct delete
+                            try {
+                              await supabase.from('organization_members').delete().eq('user_id', u.id);
+                              await supabase.from('profiles').delete().eq('id', u.id);
+                              const { error } = await supabase.auth.admin.deleteUser(u.id);
+                              if (error) throw error;
+                              setAllUsers(prev=>prev.filter(x=>x.id!==u.id));
+                              showToast('تم الحذف (fallback)');
+                            } catch (e2) {
+                              showToast('خطأ: ' + (err.message || e2.message));
+                            }
+                          }
+                        }} style={{background:`${RED}15`, border:`1px solid ${RED}`, color:RED, borderRadius:8, padding:"6px 10px", fontSize:10, fontWeight:700}}>🗑️ حذف اليوزر</button>
+                      </div>
                     </div>
-                    <div style={{display:"flex", gap:6}}>
-                      <button className="btn" onClick={async()=>{
-                        const { error } = await supabase.from('profiles').update({ is_super_admin: !u.is_super_admin }).eq('id', u.id);
-                        if (!error) {
-                          setAllUsers(prev=>prev.map(x=>x.id===u.id ? {...x, is_super_admin: !x.is_super_admin} : x));
-                          showToast(u.is_super_admin ? 'تم إزالة Super Admin' : 'تم جعله Super Admin');
-                        } else showToast(error.message);
-                      }} style={{background: u.is_super_admin ? `${RED}22` : `${GOLD}22`, border:`1px solid ${u.is_super_admin ? RED : GOLD}`, color: u.is_super_admin ? RED : GOLD, borderRadius:8, padding:"6px 10px", fontSize:11, fontWeight:700}}>
-                        {u.is_super_admin ? 'إزالة Super Admin' : 'جعله Super Admin'}
-                      </button>
+                  ) : (
+                    <div style={{display:"grid", gap:10}}>
+                      <div style={{fontWeight:800, fontSize:12, display:"flex", justifyContent:"space-between"}}><span>تعديل: {u.email}</span><span style={{fontSize:10, color:MUTED}}>ID: {u.id.slice(0,8)}</span></div>
+                      <div style={{display:"grid", gridTemplateColumns:"1fr", gap:8}}>
+                        <div><Label>📧 الإيميل الجديد</Label><input className="field" value={editForm.email} onChange={e=>setEditForm({ email: e.target.value })} style={{direction:"ltr"}} placeholder="email@example.com"/></div>
+                        <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:8}}>
+                          <div><Label>👤 اسم المستخدم</Label><input className="field" value={editForm.username} onChange={e=>setEditForm({ username: e.target.value })} placeholder="username"/></div>
+                          <div><Label>📝 الاسم الكامل</Label><input className="field" value={editForm.full_name} onChange={e=>setEditForm({ full_name: e.target.value })} placeholder="الاسم الكامل"/></div>
+                        </div>
+                      </div>
+                      <div style={{display:"flex", gap:8}}>
+                        <button className="btn" onClick={async()=>{
+                          try {
+                            if (editForm.email && editForm.email !== u.email) {
+                              try {
+                                const { error } = await supabase.rpc('admin_update_user_email', { target_user_id: u.id, new_email: editForm.email });
+                                if (error) throw error;
+                              } catch (e) {
+                                // Fallback: direct auth.users update (if allowed)
+                                const { error: err2 } = await supabase.from('profiles').update({ username: editForm.email.split('@')[0] }).eq('id', u.id);
+                                if (err2) throw e;
+                                showToast('تم تحديث اسم المستخدم فقط - الإيميل يحتاج SQL: update auth.users set email=... ');
+                              }
+                            }
+                            const { error: err3 } = await supabase.rpc('admin_update_user_profile', { 
+                              target_user_id: u.id, 
+                              new_username: editForm.username, 
+                              new_full_name: editForm.full_name,
+                              new_is_super_admin: u.is_super_admin
+                            });
+                            if (err3) {
+                              // Fallback direct
+                              const { error } = await supabase.from('profiles').update({ username: editForm.username, full_name: editForm.full_name }).eq('id', u.id);
+                              if (error) throw error;
+                            }
+                            setAllUsers(prev=>prev.map(x=>x.id===u.id ? {...x, email: editForm.email, username: editForm.username, full_name: editForm.full_name, _editMode: false} : x));
+                            showToast('✅ تم التحديث');
+                          } catch (err) {
+                            showToast('❌ خطأ: ' + err.message);
+                          }
+                        }} style={{background:TEAL, color:INK, borderRadius:8, padding:"8px 14px", fontWeight:700, fontSize:12}}>💾 حفظ التعديلات</button>
+                        <button className="btn" onClick={()=>setEditMode(false)} style={{background:LINE, color:PAPER, borderRadius:8, padding:"8px 14px", fontWeight:700, fontSize:12}}>إلغاء</button>
+                      </div>
+                      <div style={{fontSize:10, color:MUTED, background:CARD, padding:6, borderRadius:6}}>💡 تعديل الإيميل يتطلب تشغيل enhanced_users_management.sql أولا - إذا فشل، استخدم SQL مباشرة: update auth.users set email='new@email.com' where id='{u.id}'</div>
                     </div>
-                  </div>
+                  )}
                 </div>
-              ))}
+              )})}
             </div>
             
             <div style={{background:`${TEAL}12`, borderRadius:8, padding:10, border:`1px solid ${TEAL}33`}}>
-              <div style={{fontSize:11, color:TEAL, fontWeight:700}}>ملاحظة:</div>
-              <div style={{fontSize:11, color:MUTED, marginTop:4}}>هذه الشاشة للتحكم بالمستخدمين فقط - لا تظهر حركات، أقساط، فواتير، أو أي بيانات مالية. فقط معلومات الحساب.</div>
+              <div style={{fontSize:11, color:TEAL, fontWeight:700}}>✨ إدارة كاملة:</div>
+              <div style={{fontSize:11, color:MUTED, marginTop:4}}>• تعديل الإيميل، اسم المستخدم، الاسم الكامل • جعله Super Admin / إزالته • حذف اليوزر • تأكيد الإيميل • بدون عرض أي بيانات مالية (حركات، أقساط، فواتير)</div>
             </div>
           </div>
         </Modal>
       )}
 
       {/* Month selector */}
+{/* Month selector */}
 
       <div className="card" style={{ maxWidth: 980, margin: "0 auto 18px", padding: 14, borderColor: GOLD }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
