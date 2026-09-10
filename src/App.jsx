@@ -2713,7 +2713,6 @@ export default function App() {
         </Modal>
       )}
 
-      {/* Organizations Hierarchy - Super Admin - FIXED Users import */}
       {showOrgsManagement && (
         <Modal title="إدارة المنظمات - الهيكل التنظيمي" onClose={()=>setShowOrgsManagement(false)} dir={dir}>
           <div style={{display:"flex", flexDirection:"column", gap:14}}>
@@ -2736,7 +2735,7 @@ export default function App() {
                   } catch (e) { showToast(e.message); }
                 }} style={{marginInlineStart:"auto", background:CARD, border:`1px solid ${LINE}`, color:PAPER, borderRadius:6, padding:"4px 8px", fontSize:10}}>🔄 تحديث</button>
               </div>
-              <div style={{fontSize:11, color:MUTED, marginTop:4}}>كل منظمة = حساب مالي منفصل - تحتها حسابات رئيسية (Owner/Admin) وتحتها حسابات عادية (Member)</div>
+              <div style={{fontSize:11, color:MUTED, marginTop:4}}>كل منظمة = حساب مالي منفصل - تحتها حسابات رئيسية (Owner/Admin) وتحتها حسابات عادية (Member) - أفضل هيكل: يوزر واحد مالك منظمتين</div>
             </div>
             <div style={{display:"grid", gap:12, maxHeight:"65vh", overflowY:"auto"}}>
               {orgMembersDetailed.map(org=>{
@@ -2842,6 +2841,15 @@ export default function App() {
                 </div>
               )})}
             </div>
+            <div style={{background:`${GOLD}12`, borderRadius:8, padding:10, border:`1px solid ${GOLD}33`}}>
+              <div style={{fontSize:11, color:GOLD, fontWeight:700}}>💡 أفضل هيكل (افضل):</div>
+              <div style={{fontSize:11, color:MUTED, marginTop:4}}>
+                • يوزر واحد (alim.sadi) مالك منظمتين<br/>
+                • حسابي الشخصي = دفتر شخصي - Owner: alim.sadi<br/>
+                • عائلة علي السعدي = دفتر العيلة - Owner: alim.sadi<br/>
+                • احذف اليوزر المكرر alim → يصير عندك يوزر واحد، منظمتين - هذا الصح!
+              </div>
+            </div>
           </div>
         </Modal>
       )}
@@ -2852,13 +2860,13 @@ export default function App() {
             <div style={{background:CARD_SOFT, borderRadius:10, padding:12, border:`1px solid ${LINE}`}}>
               <div style={{display:"flex", alignItems:"center", gap:8}}>
                 <span style={{fontSize:16}}>🧩</span>
-                <span style={{fontWeight:800, fontSize:14}}>البرامج ({allPrograms.length})</span>
+                <span style={{fontWeight:800, fontSize:14}}>البرامج ({allPrograms.length}) - افضل</span>
                 <button className="btn" onClick={async()=>{
                   const { data } = await supabase.from('programs').select('*').order('sort_order');
                   if (data) setAllPrograms(data);
                 }} style={{marginInlineStart:"auto", background:CARD, border:`1px solid ${LINE}`, color:PAPER, borderRadius:6, padding:"4px 8px", fontSize:10}}>🔄 تحديث</button>
               </div>
-              <div style={{fontSize:11, color:MUTED}}>أنشئ، عدّل، فعّل/عطّل، واعطِ صلاحيات</div>
+              <div style={{fontSize:11, color:MUTED}}>أنشئ، عدّل، فعّل/عطّل، واعطِ صلاحيات - افضل نظام موديولز</div>
             </div>
             <div className="card" style={{padding:14, border:`2px solid ${programForm.editingId ? TEAL : GOLD}`}}>
               <div style={{fontWeight:800, fontSize:12, marginBottom:10, display:"flex", gap:8}}>
@@ -2969,7 +2977,7 @@ export default function App() {
         <div className="card" style={{ maxWidth: 980, margin: "0 auto 18px", padding: 16, borderColor: TEAL }}>
           <div style={{display:"flex", alignItems:"center", gap:8, marginBottom:12}}>
             <span style={{fontSize:16}}>🧩</span>
-            <span style={{fontWeight:800, fontSize:14}}>برامجي ({availablePrograms.length}) - اختر الموديول</span>
+            <span style={{fontWeight:800, fontSize:14}}>برامجي ({availablePrograms.length}) - افضل</span>
           </div>
           <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(140px, 1fr))", gap:10}}>
             {availablePrograms.map(p=>(
