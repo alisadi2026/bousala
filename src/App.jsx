@@ -1007,7 +1007,7 @@ export default function App() {
   const [allPrograms, setAllPrograms] = useState([]);
   const [showProgramsManagement, setShowProgramsManagement] = useState(false);
   const [programForm, setProgramForm] = useState({ slug: '', name: '', description: '', icon: '📦', color: '#C9A24B', route: '', sort_order: 0, editingId: null });
-  const [programAssignments, setProgramAssignments] = useState({}); // programId -> {orgs: [], users: []}
+  const [programAssignments, setProgramAssignments] = useState({});
   const [orgName, setOrgName] = useState("");
   const [loadingData, setLoadingData] = useState(true);
 
@@ -1044,21 +1044,6 @@ export default function App() {
             if (prof.is_super_admin) {
               const { data: allProgsAdmin } = await supabase.from('programs').select('*').order('sort_order');
               if (allProgsAdmin) setAllPrograms(allProgsAdmin);
-              // Fetch assignments
-              const { data: subs } = await supabase.from('organization_subscriptions').select('*, organization:organizations(name), program:programs(slug, name)');
-              const { data: userAccess } = await supabase.from('user_program_access').select('*, user:profiles(username, full_name), organization:organizations(name), program:programs(slug, name)');
-              if (subs || userAccess) {
-                const assignments = {};
-                subs?.forEach(s=> {
-                  if (!assignments[s.program_id]) assignments[s.program_id] = { orgs: [], users: [] };
-                  assignments[s.program_id].orgs.push(s);
-                });
-                userAccess?.forEach(ua=> {
-                  if (!assignments[ua.program_id]) assignments[ua.program_id] = { orgs: [], users: [] };
-                  assignments[ua.program_id].users.push(ua);
-                });
-                setProgramAssignments(assignments);
-              }
             }
           } catch (e) {
             setAvailablePrograms([{ slug: 'bousala', program_name: 'بوصلة', icon: '🧭', color: '#C9A24B' }]);
@@ -2711,63 +2696,41 @@ export default function App() {
       )}
 
       {showProgramsManagement && (
-        <Modal title="إدارة البرامج / الموديولز - Super Admin (متقدم)" onClose={()=>setShowProgramsManagement(false)} dir={dir}>
+        <Modal title="إدارة البرامج / الموديولز - Super Admin" onClose={()=>setShowProgramsManagement(false)} dir={dir}>
           <div style={{display:"flex", flexDirection:"column", gap:14}}>
             <div style={{background:CARD_SOFT, borderRadius:10, padding:12, border:`1px solid ${LINE}`}}>
               <div style={{display:"flex", alignItems:"center", gap:8}}>
                 <span style={{fontSize:16}}>🧩</span>
-                <span style={{fontWeight:800, fontSize:14}}>البرامج ({allPrograms.length}) - إدارة متقدمة</span>
+                <span style={{fontWeight:800, fontSize:14}}>البرامج ({allPrograms.length})</span>
                 <button className="btn" onClick={async()=>{
                   const { data } = await supabase.from('programs').select('*').order('sort_order');
                   if (data) setAllPrograms(data);
-                  showToast('تم التحديث');
                 }} style={{marginInlineStart:"auto", background:CARD, border:`1px solid ${LINE}`, color:PAPER, borderRadius:6, padding:"4px 8px", fontSize:10}}>🔄 تحديث</button>
               </div>
-              <div style={{fontSize:11, color:MUTED, marginTop:4}}>أنشئ، عدّل، فعّل/عطّل، واعطِ صلاحيات لمنظمة أو يوزر محدد</div>
+              <div style={{fontSize:11, color:MUTED}}>أنشئ، عدّل، فعّل/عطّل، واعطِ صلاحيات</div>
             </div>
-
-            <div className="card" style={{padding:14, border:`2px solid ${programForm.editingId ? TEAL : GOLD}`, background: programForm.editingId ? `${TEAL}0A` : CARD_SOFT}}>
-              <div style={{fontWeight:800, fontSize:12, marginBottom:10, display:"flex", alignItems:"center", gap:8}}>
-                {programForm.editingId ? '✏️ تعديل البرنامج' : '➕ إنشاء برنامج جديد'}
+            <div className="card" style={{padding:14, border:`2px solid ${programForm.editingId ? TEAL : GOLD}`}}>
+              <div style={{fontWeight:800, fontSize:12, marginBottom:10, display:"flex", gap:8}}>
+                {programForm.editingId ? '✏️ تعديل' : '➕ إنشاء برنامج جديد'}
                 {programForm.editingId && <button className="btn" onClick={()=>setProgramForm({ slug: '', name: '', description: '', icon: '📦', color: '#C9A24B', route: '', sort_order: 0, editingId: null })} style={{marginInlineStart:"auto", background:LINE, color:PAPER, borderRadius:6, padding:"4px 8px", fontSize:10}}>إلغاء</button>}
               </div>
               <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:8}}>
-                <div><Label>Slug {programForm.editingId ? '(ثابت)' : ''}</Label><input className="field" value={programForm.slug} disabled={!!programForm.editingId} onChange={e=>setProgramForm({...programForm, slug: e.target.value.toLowerCase().replace(/\s+/g, '_')})} placeholder="inventory"/></div>
+                <div><Label>Slug</Label><input className="field" value={programForm.slug} disabled={!!programForm.editingId} onChange={e=>setProgramForm({...programForm, slug: e.target.value.toLowerCase().replace(/\s+/g, '_')})} placeholder="inventory"/></div>
                 <div><Label>الأيقونة</Label><input className="field" value={programForm.icon} onChange={e=>setProgramForm({...programForm, icon: e.target.value})} placeholder="📦"/></div>
               </div>
               <div style={{display:"grid", gap:8, marginTop:8}}>
                 <div><Label>اسم البرنامج</Label><input className="field" value={programForm.name} onChange={e=>setProgramForm({...programForm, name: e.target.value})} placeholder="المخزون"/></div>
                 <div><Label>الوصف</Label><input className="field" value={programForm.description} onChange={e=>setProgramForm({...programForm, description: e.target.value})} placeholder="إدارة المخزون"/></div>
-                <div style={{display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:8}}>
-                  <div><Label>اللون</Label><input className="field" type="color" value={programForm.color} onChange={e=>setProgramForm({...programForm, color: e.target.value})}/></div>
-                  <div><Label>المسار</Label><input className="field" value={programForm.route} onChange={e=>setProgramForm({...programForm, route: e.target.value})} placeholder="/inventory"/></div>
-                  <div><Label>الترتيب</Label><input className="field" type="number" value={programForm.sort_order} onChange={e=>setProgramForm({...programForm, sort_order: parseInt(e.target.value)||0})}/></div>
-                </div>
               </div>
               <button className="btn" onClick={async()=>{
                 if (!programForm.slug || !programForm.name) return showToast('أدخل slug واسم');
                 try {
                   if (programForm.editingId) {
-                    const { error } = await supabase.from('programs').update({
-                      name: programForm.name,
-                      description: programForm.description,
-                      icon: programForm.icon,
-                      color: programForm.color,
-                      route: programForm.route,
-                      sort_order: programForm.sort_order
-                    }).eq('id', programForm.editingId);
+                    const { error } = await supabase.from('programs').update({ name: programForm.name, description: programForm.description, icon: programForm.icon, color: programForm.color, route: programForm.route, sort_order: programForm.sort_order }).eq('id', programForm.editingId);
                     if (error) throw error;
                     showToast('✅ تم التحديث');
                   } else {
-                    const { error } = await supabase.rpc('admin_create_program', {
-                      prog_slug: programForm.slug,
-                      prog_name: programForm.name,
-                      prog_description: programForm.description,
-                      prog_icon: programForm.icon,
-                      prog_color: programForm.color,
-                      prog_route: programForm.route,
-                      prog_sort_order: programForm.sort_order
-                    });
+                    const { error } = await supabase.rpc('admin_create_program', { prog_slug: programForm.slug, prog_name: programForm.name, prog_description: programForm.description, prog_icon: programForm.icon, prog_color: programForm.color, prog_route: programForm.route, prog_sort_order: programForm.sort_order });
                     if (error) throw error;
                     showToast('✅ تم الإنشاء');
                   }
@@ -2775,9 +2738,8 @@ export default function App() {
                   if (allProgs) setAllPrograms(allProgs);
                   setProgramForm({ slug: '', name: '', description: '', icon: '📦', color: '#C9A24B', route: '', sort_order: 0, editingId: null });
                 } catch (err) { showToast('❌ '+err.message); }
-              }} style={{marginTop:10, background: programForm.editingId ? TEAL : GOLD, color: INK, borderRadius:8, padding:"8px 14px", fontWeight:700}}>{programForm.editingId ? '💾 حفظ التعديلات' : '➕ إنشاء'}</button>
+              }} style={{marginTop:10, background: programForm.editingId ? TEAL : GOLD, color: INK, borderRadius:8, padding:"8px 14px", fontWeight:700}}>{programForm.editingId ? '💾 حفظ' : '➕ إنشاء'}</button>
             </div>
-
             <div style={{display:"grid", gap:12, maxHeight:"60vh", overflowY:"auto"}}>
               {allPrograms.map(p=>{
                 const assignments = programAssignments[p.id] || { orgs: [], users: [] };
@@ -2787,26 +2749,18 @@ export default function App() {
                     <div style={{display:"flex", alignItems:"center", gap:10, flex:1}}>
                       <div style={{fontSize:28}}>{p.icon}</div>
                       <div style={{flex:1}}>
-                        <div style={{fontWeight:800, fontSize:13, display:"flex", alignItems:"center", gap:6, flexWrap:"wrap"}}>
-                          {p.name} <span style={{fontSize:10, color:MUTED}}>({p.slug})</span>
-                          {p.is_active ? <span style={{background:`${TEAL}22`, color:TEAL, fontSize:9, padding:"2px 5px", borderRadius:999}}>✅ مفعل</span> : <span style={{background:`${RED}22`, color:RED, fontSize:9, padding:"2px 5px", borderRadius:999}}>❌ معطل</span>}
-                        </div>
+                        <div style={{fontWeight:800, fontSize:13}}>{p.name} ({p.slug}) {p.is_active ? '✅' : '❌'}</div>
                         <div style={{fontSize:11, color:MUTED}}>{p.description}</div>
-                        <div style={{fontSize:10, color:MUTED, marginTop:4}}>🏢 {assignments.orgs.length} منظمات · 👤 {assignments.users.length} يوزرز</div>
+                        <div style={{fontSize:10, color:MUTED}}>🏢 {assignments.orgs.length} · 👤 {assignments.users.length}</div>
                       </div>
                     </div>
                     <div style={{display:"flex", flexDirection:"column", gap:5, minWidth:110}}>
                       <button className="btn" onClick={async()=>{
                         const { error } = await supabase.from('programs').update({ is_active: !p.is_active }).eq('id', p.id);
-                        if (!error) {
-                          setAllPrograms(prev=>prev.map(x=>x.id===p.id ? {...x, is_active: !x.is_active} : x));
-                          showToast(p.is_active ? 'تم التعطيل' : 'تم التفعيل');
-                        }
+                        if (!error) setAllPrograms(prev=>prev.map(x=>x.id===p.id ? {...x, is_active: !x.is_active} : x));
                       }} style={{background: p.is_active ? `${RED}22` : `${TEAL}22`, border:`1px solid ${p.is_active ? RED : TEAL}`, color: p.is_active ? RED : TEAL, borderRadius:8, padding:"5px 8px", fontSize:11}}>{p.is_active ? 'تعطيل' : 'تفعيل'}</button>
-                      <button className="btn" onClick={()=>{
-                        setProgramForm({ slug: p.slug, name: p.name, description: p.description||'', icon: p.icon||'📦', color: p.color||'#C9A24B', route: p.route||'', sort_order: p.sort_order||0, editingId: p.id });
-                      }} style={{background:CARD, border:`1px solid ${GOLD}`, color:GOLD, borderRadius:8, padding:"5px 8px", fontSize:11, display:"flex", alignItems:"center", gap:4}}><Pencil size={12}/> تعديل</button>
-                      <button className="btn" onClick={()=>setAllPrograms(prev=>prev.map(x=>x.id===p.id ? {...x, _expanded: !x._expanded} : x))} style={{background:CARD, border:`1px solid ${LINE}`, color:PAPER, borderRadius:8, padding:"5px 8px", fontSize:10}}>{p._expanded ? '▲ إخفاء' : '▼ صلاحيات'}</button>
+                      <button className="btn" onClick={()=>setProgramForm({ slug: p.slug, name: p.name, description: p.description||'', icon: p.icon||'📦', color: p.color||'#C9A24B', route: p.route||'', sort_order: p.sort_order||0, editingId: p.id })} style={{background:CARD, border:`1px solid ${GOLD}`, color:GOLD, borderRadius:8, padding:"5px 8px", fontSize:11}}><Pencil size={12}/> تعديل</button>
+                      <button className="btn" onClick={()=>setAllPrograms(prev=>prev.map(x=>x.id===p.id ? {...x, _expanded: !x._expanded} : x))} style={{background:CARD, border:`1px solid ${LINE}`, color:PAPER, borderRadius:8, padding:"5px 8px", fontSize:10}}>{p._expanded ? '▲' : '▼ صلاحيات'}</button>
                     </div>
                   </div>
                   {p._expanded && (
@@ -2818,13 +2772,11 @@ export default function App() {
                             const isAssigned = assignments.orgs.some(s=>s.organization_id===org.id && s.is_active);
                             return (
                               <button key={org.id} className="btn" onClick={async()=>{
-                                try {
-                                  const { error } = await supabase.rpc('admin_assign_program_to_org', { target_org_id: org.id, target_program_slug: p.slug, is_active: !isAssigned });
-                                  if (error) throw error;
-                                  showToast(`${isAssigned ? 'تم إلغاء' : 'تم إعطاء'} ${p.name} لـ ${org.name}`);
+                                const { error } = await supabase.rpc('admin_assign_program_to_org', { target_org_id: org.id, target_program_slug: p.slug, is_active: !isAssigned });
+                                if (!error) {
                                   const { data: subs } = await supabase.from('organization_subscriptions').select('*, organization:organizations(name)').eq('program_id', p.id);
                                   setProgramAssignments(prev=>({...prev, [p.id]: { ...prev[p.id], orgs: subs||[] }}));
-                                } catch (err) { showToast(err.message); }
+                                }
                               }} style={{background: isAssigned ? `${TEAL}22` : `${GOLD}15`, border:`1px solid ${isAssigned ? TEAL : `${GOLD}33`}`, color: isAssigned ? TEAL : GOLD, borderRadius:6, padding:"4px 8px", fontSize:10}}>
                                 {isAssigned ? '✅' : '➕'} {org.name}
                               </button>
@@ -2839,14 +2791,13 @@ export default function App() {
                             const ua = assignments.users.find(x=>x.user_id===u.id);
                             return (
                               <div key={u.id} style={{display:"flex", alignItems:"center", justifyContent:"space-between", gap:6, background:CARD_SOFT, padding:"6px 8px", borderRadius:6}}>
-                                <div style={{fontSize:10}}><span style={{direction:"ltr"}}>{u.email||u.username}</span> {ua?.is_allowed && <span style={{color:TEAL}}>✅ {ua.role}</span>}</div>
+                                <div style={{fontSize:10}}><span style={{direction:"ltr"}}>{u.email||u.username}</span> {ua?.is_allowed && <span style={{color:TEAL}}>✅</span>}</div>
                                 <button className="btn" onClick={async()=>{
                                   const orgId = allOrgs[0]?.id;
                                   const { error } = await supabase.rpc('admin_assign_program_to_user', { target_user_id: u.id, target_org_id: orgId, target_program_slug: p.slug, allowed: !ua?.is_allowed, user_role: ua?.role||'viewer' });
                                   if (!error) {
-                                    const { data: uas } = await supabase.from('user_program_access').select('*, organization:organizations(name)').eq('program_id', p.id);
+                                    const { data: uas } = await supabase.from('user_program_access').select('*').eq('program_id', p.id);
                                     setProgramAssignments(prev=>({...prev, [p.id]: { ...prev[p.id], users: uas||[] }}));
-                                    showToast(!ua?.is_allowed ? 'تم التفعيل' : 'تم الإلغاء');
                                   }
                                 }} style={{background: ua?.is_allowed ? `${RED}22` : `${TEAL}22`, border:`1px solid ${ua?.is_allowed ? RED : TEAL}`, color: ua?.is_allowed ? RED : TEAL, borderRadius:6, padding:"2px 6px", fontSize:9}}>{ua?.is_allowed ? 'إلغاء' : 'تفعيل'}</button>
                               </div>
@@ -2863,7 +2814,7 @@ export default function App() {
         </Modal>
       )}
 
-      {availablePrograms.length > 1 && (.length > 1 && (
+      {availablePrograms.length > 1 && (
         <div className="card" style={{ maxWidth: 980, margin: "0 auto 18px", padding: 16, borderColor: TEAL }}>
           <div style={{display:"flex", alignItems:"center", gap:8, marginBottom:12}}>
             <span style={{fontSize:16}}>🧩</span>
