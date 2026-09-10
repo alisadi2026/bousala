@@ -4,7 +4,7 @@ import {
   ResponsiveContainer, CartesianGrid, Legend
 } from "recharts";
 import * as XLSX from "xlsx";
-import { Plus, ClipboardPaste, Target, TrendingUp, Wallet, AlertTriangle, X, Check, Pencil, Baby, Clock, Bell, PiggyBank, BarChart3, Languages, Download, Upload, Settings, Search, ArrowUpDown, LogOut, ChevronDown, Eye, Link2, Lock, User, SlidersHorizontal, Shield, Building2 } from "lucide-react";
+import { Plus, ClipboardPaste, Target, TrendingUp, Wallet, AlertTriangle, X, Check, Pencil, Baby, Clock, Bell, PiggyBank, BarChart3, Languages, Download, Upload, Settings, Search, ArrowUpDown, LogOut, ChevronDown, Eye, Link2, Lock, User, Users, SlidersHorizontal, Shield, Building2 } from "lucide-react";
 import { createClient } from "@supabase/supabase-js";
 
 // FIX LOGIN FLAKINESS - Vercel env vars fallback + debug
@@ -2713,7 +2713,7 @@ export default function App() {
         </Modal>
       )}
 
-      {/* Organizations Hierarchy - Super Admin */}
+      {/* Organizations Hierarchy - Super Admin - FIXED Users import */}
       {showOrgsManagement && (
         <Modal title="إدارة المنظمات - الهيكل التنظيمي" onClose={()=>setShowOrgsManagement(false)} dir={dir}>
           <div style={{display:"flex", flexDirection:"column", gap:14}}>
@@ -2736,9 +2736,8 @@ export default function App() {
                   } catch (e) { showToast(e.message); }
                 }} style={{marginInlineStart:"auto", background:CARD, border:`1px solid ${LINE}`, color:PAPER, borderRadius:6, padding:"4px 8px", fontSize:10}}>🔄 تحديث</button>
               </div>
-              <div style={{fontSize:11, color:MUTED, marginTop:4}}>كل منظمة = حساب مالي منفصل - تحتها يوزرز رئيسية وتحتها يوزرز فرعية - تقدر تشوف مين وين</div>
+              <div style={{fontSize:11, color:MUTED, marginTop:4}}>كل منظمة = حساب مالي منفصل - تحتها حسابات رئيسية (Owner/Admin) وتحتها حسابات عادية (Member)</div>
             </div>
-
             <div style={{display:"grid", gap:12, maxHeight:"65vh", overflowY:"auto"}}>
               {orgMembersDetailed.map(org=>{
                 const owners = org.members?.filter(m=>m.role==='owner') || [];
@@ -2746,47 +2745,43 @@ export default function App() {
                 const members = org.members?.filter(m=>!['owner','admin'].includes(m.role)) || [];
                 return (
                 <div key={org.id} className="card" style={{padding:14, border:`1px solid ${GOLD}`, background:CARD_SOFT}}>
-                  <div style={{display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:10}}>
+                  <div style={{display:"flex", justifyContent:"space-between", gap:10}}>
                     <div style={{flex:1}}>
                       <div style={{display:"flex", alignItems:"center", gap:8}}>
                         <div style={{width:36, height:36, borderRadius:8, background:`${GOLD}22`, border:`1px solid ${GOLD}`, display:"flex", alignItems:"center", justifyContent:"center"}}>
                           <Building2 size={18} color={GOLD}/>
                         </div>
                         <div>
-                          <div style={{fontWeight:800, fontSize:14, display:"flex", alignItems:"center", gap:6}}>
+                          <div style={{fontWeight:800, fontSize:14, display:"flex", alignItems:"center", gap:6, flexWrap:"wrap"}}>
                             {org.name}
                             <span style={{fontSize:10, color:MUTED, background:CARD, padding:"2px 6px", borderRadius:4}}>{org.id.slice(0,6)}</span>
                             <span style={{fontSize:10, background:`${TEAL}22`, color:TEAL, padding:"2px 6px", borderRadius:999}}>{org.memberCount} يوزر</span>
                           </div>
-                          <div style={{fontSize:11, color:MUTED, marginTop:2}}>أنشئت: {org.created_at ? new Date(org.created_at).toLocaleDateString('ar-JO') : '—'} · {org.description||'بدون وصف'}</div>
+                          <div style={{fontSize:11, color:MUTED}}>أنشئت: {org.created_at ? new Date(org.created_at).toLocaleDateString('ar-JO') : '—'}</div>
                         </div>
                       </div>
-
-                      {/* Hierarchy: Owners -> Admins -> Members */}
                       <div style={{marginTop:14, display:"grid", gap:10}}>
                         {owners.length>0 && (
                           <div>
-                            <div style={{fontSize:11, fontWeight:800, color:GOLD, display:"flex", alignItems:"center", gap:4}}><Shield size={12}/> 👑 المالك/المالكين ({owners.length}) - حسابات رئيسية</div>
+                            <div style={{fontSize:11, fontWeight:800, color:GOLD}}><Shield size={12}/> 👑 المالكين ({owners.length}) - حسابات رئيسية</div>
                             <div style={{display:"grid", gap:6, marginTop:6}}>
                               {owners.map(m=>(
                                 <div key={m.user_id} style={{display:"flex", alignItems:"center", justifyContent:"space-between", background:`${GOLD}12`, border:`1px solid ${GOLD}33`, padding:"8px 10px", borderRadius:8}}>
                                   <div style={{display:"flex", alignItems:"center", gap:8}}>
                                     <div style={{width:28, height:28, borderRadius:"50%", background:GOLD, display:"flex", alignItems:"center", justifyContent:"center", color:INK, fontWeight:800, fontSize:11}}>{(m.user?.full_name||m.user?.username||'U').slice(0,2).toUpperCase()}</div>
                                     <div>
-                                      <div style={{fontSize:12, fontWeight:700, display:"flex", alignItems:"center", gap:4}}>{m.user?.full_name||m.user?.username} <span style={{fontSize:9, background:GOLD, color:INK, padding:"2px 5px", borderRadius:999}}>OWNER</span></div>
-                                      <div style={{fontSize:10, color:MUTED, direction:"ltr"}}>{m.user_id.slice(0,8)} · {m.user?.username}</div>
+                                      <div style={{fontSize:12, fontWeight:700}}>{m.user?.full_name||m.user?.username} <span style={{fontSize:9, background:GOLD, color:INK, padding:"2px 5px", borderRadius:999}}>OWNER</span></div>
+                                      <div style={{fontSize:10, color:MUTED}}>{m.user?.username}</div>
                                     </div>
                                   </div>
-                                  <span style={{fontSize:10, color:MUTED}}>{new Date(m.created_at).toLocaleDateString()}</span>
                                 </div>
                               ))}
                             </div>
                           </div>
                         )}
-
                         {admins.length>0 && (
                           <div>
-                            <div style={{fontSize:11, fontWeight:800, color:TEAL, display:"flex", alignItems:"center", gap:4}}><User size={12}/> 🛡️ أدمنز ({admins.length}) - حسابات رئيسية</div>
+                            <div style={{fontSize:11, fontWeight:800, color:TEAL}}><User size={12}/> 🛡️ أدمنز ({admins.length}) - حسابات رئيسية</div>
                             <div style={{display:"grid", gap:6, marginTop:6}}>
                               {admins.map(m=>(
                                 <div key={m.user_id} style={{display:"flex", alignItems:"center", justifyContent:"space-between", background:`${TEAL}0A`, border:`1px solid ${TEAL}33`, padding:"8px 10px", borderRadius:8}}>
@@ -2794,14 +2789,13 @@ export default function App() {
                                     <div style={{width:28, height:28, borderRadius:"50%", background:TEAL, display:"flex", alignItems:"center", justifyContent:"center", color:INK, fontWeight:700, fontSize:11}}>{(m.user?.full_name||m.user?.username||'A').slice(0,2).toUpperCase()}</div>
                                     <div>
                                       <div style={{fontSize:12, fontWeight:700}}>{m.user?.full_name||m.user?.username} <span style={{fontSize:9, background:TEAL, color:INK, padding:"2px 5px", borderRadius:999}}>ADMIN</span></div>
-                                      <div style={{fontSize:10, color:MUTED, direction:"ltr"}}>{m.user?.username}</div>
+                                      <div style={{fontSize:10, color:MUTED}}>{m.user?.username}</div>
                                     </div>
                                   </div>
                                   <button className="btn" onClick={async()=>{
                                     const { error } = await supabase.from('organization_members').delete().eq('organization_id', org.id).eq('user_id', m.user_id);
                                     if (!error) {
                                       setOrgMembersDetailed(prev=>prev.map(o=>o.id===org.id ? {...o, members: o.members.filter(x=>x.user_id!==m.user_id), memberCount: o.memberCount-1} : o));
-                                      showToast('تمت إزالة اليوزر من المنظمة');
                                     }
                                   }} style={{background:`${RED}15`, border:`1px solid ${RED}33`, color:RED, borderRadius:6, padding:"3px 6px", fontSize:9}}>إزالة</button>
                                 </div>
@@ -2809,9 +2803,8 @@ export default function App() {
                             </div>
                           </div>
                         )}
-
                         <div>
-                          <div style={{fontSize:11, fontWeight:800, color:PAPER, display:"flex", alignItems:"center", gap:4}}><Users size={12}/> 👥 يوزرز/حسابات ({members.length}) {members.length===0 && <span style={{fontWeight:400, color:MUTED}}>- لا يوجد</span>}</div>
+                          <div style={{fontSize:11, fontWeight:800, color:PAPER}}><Users size={12}/> 👥 يوزرز/حسابات ({members.length})</div>
                           {members.length>0 && (
                             <div style={{display:"grid", gap:6, marginTop:6}}>
                               {members.map(m=>(
@@ -2819,8 +2812,8 @@ export default function App() {
                                   <div style={{display:"flex", alignItems:"center", gap:8}}>
                                     <div style={{width:28, height:28, borderRadius:"50%", background:LINE, display:"flex", alignItems:"center", justifyContent:"center", color:PAPER, fontWeight:700, fontSize:11}}>{(m.user?.full_name||m.user?.username||'U').slice(0,2).toUpperCase()}</div>
                                     <div>
-                                      <div style={{fontSize:12, fontWeight:700, display:"flex", alignItems:"center", gap:4}}>{m.user?.full_name||m.user?.username} <span style={{fontSize:9, background:LINE, color:MUTED, padding:"2px 5px", borderRadius:999}}>{m.role||'member'}</span></div>
-                                      <div style={{fontSize:10, color:MUTED, direction:"ltr"}}>{m.user?.username} · {m.role}</div>
+                                      <div style={{fontSize:12, fontWeight:700}}>{m.user?.full_name||m.user?.username} <span style={{fontSize:9, background:LINE, color:MUTED, padding:"2px 5px", borderRadius:999}}>{m.role||'member'}</span></div>
+                                      <div style={{fontSize:10, color:MUTED}}>{m.user?.username}</div>
                                     </div>
                                   </div>
                                   <div style={{display:"flex", gap:4}}>
@@ -2829,7 +2822,6 @@ export default function App() {
                                       const { error } = await supabase.from('organization_members').update({ role: newRole }).eq('organization_id', org.id).eq('user_id', m.user_id);
                                       if (!error) {
                                         setOrgMembersDetailed(prev=>prev.map(o=>o.id===org.id ? {...o, members: o.members.map(x=>x.user_id===m.user_id ? {...x, role: newRole} : x)} : o));
-                                        showToast(`تم تغيير الرول إلى ${newRole}`);
                                       }
                                     }} style={{background:CARD_SOFT, border:`1px solid ${LINE}`, color:PAPER, borderRadius:6, padding:"3px 6px", fontSize:9}}>{m.role==='member' ? 'جعله أدمن' : 'جعله عضو'}</button>
                                     <button className="btn" onClick={async()=>{
@@ -2844,50 +2836,11 @@ export default function App() {
                             </div>
                           )}
                         </div>
-
-                        {/* Add user to org */}
-                        <div style={{marginTop:8, display:"flex", gap:6, flexWrap:"wrap"}}>
-                          <span style={{fontSize:10, color:MUTED}}>➕ إضافة يوزر للمنظمة:</span>
-                          {allUsers.filter(u=>!org.members.some(m=>m.user_id===u.id)).slice(0,5).map(u=>(
-                            <button key={u.id} className="btn" onClick={async()=>{
-                              const { error } = await supabase.from('organization_members').insert({ organization_id: org.id, user_id: u.id, role: 'member' });
-                              if (!error) {
-                                setOrgMembersDetailed(prev=>prev.map(o=>o.id===org.id ? {...o, members: [...o.members, { user_id: u.id, organization_id: org.id, role: 'member', user: { username: u.username, full_name: u.full_name }, created_at: new Date().toISOString() }], memberCount: o.memberCount+1} : o));
-                                showToast(`تمت إضافة ${u.username} إلى ${org.name}`);
-                              }
-                            }} style={{background:`${TEAL}15`, border:`1px solid ${TEAL}33`, color:TEAL, borderRadius:6, padding:"3px 6px", fontSize:9}}>{u.username?.slice(0,12)} +</button>
-                          ))}
-                        </div>
                       </div>
                     </div>
-                    <div style={{display:"flex", flexDirection:"column", gap:4}}>
-                      <span style={{fontSize:10, background:CARD, padding:"4px 6px", borderRadius:6, color:MUTED}}>ID: {org.id.slice(0,8)}</span>
-                      <button className="btn" onClick={()=>setOrgMembersDetailed(prev=>prev.map(o=>o.id===org.id ? {...o, _expanded: !o._expanded} : o))} style={{background:CARD, border:`1px solid ${LINE}`, color:PAPER, borderRadius:6, padding:"4px 6px", fontSize:9}}>{org._expanded ? '▲' : '▼ تفاصيل'}</button>
-                    </div>
                   </div>
-                  {org._expanded && (
-                    <div style={{marginTop:10, background:INK, padding:10, borderRadius:8, fontSize:11, color:MUTED}}>
-                      <div>الاسم الكامل: {org.name}</div>
-                      <div>ID الكامل: <span style={{direction:"ltr", fontSize:10}}>{org.id}</span></div>
-                      <div>تاريخ الإنشاء: {org.created_at}</div>
-                      <div>الوصف: {org.description||'—'}</div>
-                      <div style={{marginTop:8}}>البرامج المفعلة لهذه المنظمة: {allPrograms.filter(p=>false).length} - (يتم جلبها من الاشتراكات)</div>
-                    </div>
-                  )}
                 </div>
               )})}
-            </div>
-
-            <div style={{background:`${GOLD}12`, borderRadius:8, padding:10, border:`1px solid ${GOLD}33`}}>
-              <div style={{fontSize:11, color:GOLD, fontWeight:700}}>💡 شرح الهيكل:</div>
-              <div style={{fontSize:11, color:MUTED, marginTop:4}}>
-                • <b>المنظمة (Organization)</b> = حساب مالي منفصل (مثل شركة أو عائلة)<br/>
-                • <b>👑 Owner</b> = حساب رئيسي - مالك المنظمة - صلاحية كاملة<br/>
-                • <b>🛡️ Admin</b> = حساب رئيسي - أدمن - يقدر يضيف يوزرز<br/>
-                • <b>👥 Member</b> = حساب/يوزر عادي - عضو في المنظمة<br/>
-                • اليوزر الواحد ممكن يكون في أكثر من منظمة (حسابي الشخصي + عائلة علي السعدي)<br/>
-                • مثال: أنت (alim.sadi) Owner في حسابي الشخصي و Owner في عائلة علي السعدي → نفس اليوزر، منظمتين
-              </div>
             </div>
           </div>
         </Modal>
