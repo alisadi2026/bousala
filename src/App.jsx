@@ -1010,6 +1010,30 @@ export default function App() {
     if (prof) {
       setProfile(prof);
       setIsSuperAdmin(!!prof.is_super_admin);
+      // If super admin, fetch all users for management (simple, no financial data)
+      if (prof.is_super_admin) {
+        try {
+          const { data: profiles } = await supabase.from('profiles').select('*').order('created_at', { ascending: false });
+          if (profiles) {
+            // Get all memberships and orgs in 2 queries (not per-user)
+            const { data: allMembers } = await supabase.from('organization_members').select('user_id, organization_id');
+            const { data: allOrgsData } = await supabase.from('organizations').select('id, name');
+            const orgMap = {};
+            allOrgsData?.forEach(o=>{ orgMap[o.id]=o.name; });
+            const enriched = profiles.map(p => {
+              const memberOrgs = allMembers?.filter(m=>m.user_id===p.id) || [];
+              const orgNames = memberOrgs.map(m=>orgMap[m.organization_id] || m.organization_id.slice(0,6));
+              return { ...p, orgNames, orgCount: memberOrgs.length };
+            });
+            setAllUsers(enriched);
+          }
+        } catch (e) {
+          console.error('Failed to fetch users:', e);
+          // Fallback: just profiles
+          const { data: profiles } = await supabase.from('profiles').select('*').order('created_at', { ascending: false });
+          if (profiles) setAllUsers(profiles.map(p=>({ ...p, orgNames: [], orgCount: 0 })));
+        }
+      }
     }
     // Fetch orgs where user is member - RLS open now
     const { data: orgs } = await supabase.from('organizations').select('*').order('created_at', { ascending: false });
