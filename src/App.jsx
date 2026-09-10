@@ -2427,10 +2427,29 @@ export default function App() {
             }} />
           </div>
           <div>
-            <div style={{ fontWeight: 900, fontSize: 22, letterSpacing: 0.3 }}>{t("appName")}</div>
-            <div style={{ fontSize: 12, color: MUTED }}>{t("tagline")}</div>
+            <div style={{ fontWeight: 900, fontSize: 22, letterSpacing: 0.3, display:"flex", alignItems:"center", gap:8 }}>
+              {t("appName")}
+              {isSuperAdmin && <span style={{background:`${GOLD}22`, border:`1px solid ${GOLD}`, color:GOLD, fontSize:10, padding:"2px 6px", borderRadius:999, fontWeight:800}}><Shield size={10} style={{marginInlineEnd:3}}/>Super Admin</span>}
+            </div>
+            <div style={{ fontSize: 12, color: MUTED }}>{t("tagline")} {currentOrgId && `· ${orgName}`}</div>
           </div>
         </div>
+        {isSuperAdmin && allOrgs.length>0 && (
+          <div style={{display:"flex", alignItems:"center", gap:8, background:CARD_SOFT, borderRadius:9, padding:"6px 10px", border:`1px solid ${LINE}`}}>
+            <Building2 size={14} color={GOLD}/>
+            <select className="field" value={currentOrgId||""} onChange={e=>{
+              const newId=e.target.value;
+              setCurrentOrgId(newId);
+              localStorage.setItem("bousala_org", newId);
+              const found=allOrgs.find(o=>o.id===newId);
+              if(found) setOrgName(found.name);
+              window.location.reload();
+            }} style={{background:"transparent", border:"none", color:PAPER, fontSize:12, fontWeight:700, minWidth:140}}>
+              {allOrgs.map(o=><option key={o.id} value={o.id} style={{background:CARD}}>{o.name} ({o.id.slice(0,6)})</option>)}
+            </select>
+            <span style={{fontSize:11, color:MUTED}}>{allOrgs.length} orgs</span>
+          </div>
+        )}
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                     <button
             className="btn"
