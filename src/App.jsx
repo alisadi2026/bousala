@@ -1000,6 +1000,8 @@ export default function App() {
   const [profile, setProfile] = useState(null);
   const [isSuperAdmin, setIsSuperAdmin] = useState(false);
   const [allOrgs, setAllOrgs] = useState([]);
+  const [allUsers, setAllUsers] = useState([]);
+  const [showUsersManagement, setShowUsersManagement] = useState(false);
   const [orgName, setOrgName] = useState("");
   const [loadingData, setLoadingData] = useState(true);
 
@@ -1219,12 +1221,17 @@ export default function App() {
         if (error) return setAuthError(error.message);
         if (data.user) {
           await supabase.from('profiles').insert({ id: data.user.id, username: email.split('@')[0], full_name: email.split('@')[0] });
-          const { data: org } = await supabase.from('organizations').insert({ name: 'حسابي الشخصي', owner_id: data.user.id, created_by: data.user.id }).select().single();
+          // Clear old org cache - important for same browser
+            localStorage.removeItem("bousala_org");
+            const { data: org } = await supabase.from('organizations').insert({ name: 'حسابي الشخصي', owner_id: data.user.id, created_by: data.user.id }).select().single();
           if (org) {
             await supabase.from('organization_members').insert({ organization_id: org.id, user_id: data.user.id, role: 'owner' });
             const { data: prog } = await supabase.from('programs').select('id').eq('slug','bousala').single();
             if (prog) await supabase.from('organization_subscriptions').insert({ organization_id: org.id, program_id: prog.id });
             setCurrentOrgId(org.id);
+            localStorage.setItem("bousala_org", org.id);
+            setOrgName(org.name);
+            setAllOrgs([org]); // New user sees only his org initially
             localStorage.setItem("bousala_org", org.id);
           }
           setSupabaseUser(data.user);
@@ -2434,20 +2441,27 @@ export default function App() {
             <div style={{ fontSize: 12, color: MUTED }}>{t("tagline")} {currentOrgId && `· ${orgName}`}</div>
           </div>
         </div>
-        {isSuperAdmin && allOrgs.length>0 && (
-          <div style={{display:"flex", alignItems:"center", gap:8, background:CARD_SOFT, borderRadius:9, padding:"6px 10px", border:`1px solid ${LINE}`}}>
-            <Building2 size={14} color={GOLD}/>
-            <select className="field" value={currentOrgId||""} onChange={e=>{
-              const newId=e.target.value;
-              setCurrentOrgId(newId);
-              localStorage.setItem("bousala_org", newId);
-              const found=allOrgs.find(o=>o.id===newId);
-              if(found) setOrgName(found.name);
-              window.location.reload();
-            }} style={{background:"transparent", border:"none", color:PAPER, fontSize:12, fontWeight:700, minWidth:140}}>
-              {allOrgs.map(o=><option key={o.id} value={o.id} style={{background:CARD}}>{o.name} ({o.id.slice(0,6)})</option>)}
-            </select>
-            <span style={{fontSize:11, color:MUTED}}>{allOrgs.length} orgs</span>
+        {isSuperAdmin && (
+          <div style={{display:"flex", alignItems:"center", gap:8}}>
+            {allOrgs.length>0 && (
+              <div style={{display:"flex", alignItems:"center", gap:8, background:CARD_SOFT, borderRadius:9, padding:"6px 10px", border:`1px solid ${LINE}`}}>
+                <Building2 size={14} color={GOLD}/>
+                <select className="field" value={currentOrgId||""} onChange={e=>{
+                  const newId=e.target.value;
+                  setCurrentOrgId(newId);
+                  localStorage.setItem("bousala_org", newId);
+                  const found=allOrgs.find(o=>o.id===newId);
+                  if(found) setOrgName(found.name);
+                  window.location.reload();
+                }} style={{background:"transparent", border:"none", color:PAPER, fontSize:12, fontWeight:700, minWidth:140}}>
+                  {allOrgs.map(o=><option key={o.id} value={o.id} style={{background:CARD}}>{o.name} ({o.id.slice(0,6)})</option>)}
+                </select>
+                <span style={{fontSize:11, color:MUTED}}>{allOrgs.length} orgs</span>
+              </div>
+            )}
+            <button className="btn" onClick={()=>setShowUsersManagement(true)} style={{background:`${GOLD}22`, border:`1px solid ${GOLD}`, color:GOLD, borderRadius:9, padding:"6px 10px", fontSize:12, fontWeight:700, display:"flex", alignItems:"center", gap:6}}>
+              <User size={14}/> إدارة اليوزرز ({allUsers.length})
+            </button>
           </div>
         )}
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -2466,7 +2480,57 @@ export default function App() {
         </div>
       </div>
 
+      
+      {/* Users Management - Super Admin Only - Shows user info without financial details */}
+      {showUsersManagement && (
+        <Modal title="إدارة المستخدمين - Super Admin" onClose={()=>setShowUsersManagement(false)} dir={dir}>
+          <div style={{display:"flex", flexDirection:"column", gap:14}}>
+            <div style={{background:CARD_SOFT, borderRadius:10, padding:12, border:`1px solid ${LINE}`}}>
+              <div style={{display:"flex", alignItems:"center", gap:8, marginBottom:8}}>
+                <Shield size={16} color={GOLD}/>
+                <span style={{fontWeight:800, fontSize:14}}>المستخدمين ({allUsers.length}) - معلومات فقط بدون تفاصيل مالية</span>
+              </div>
+              <div style={{fontSize:11, color:MUTED}}>يعرض فقط: اسم المستخدم، تاريخ الإنشاء، عدد المنظمات، حالة Super Admin - لا يعرض حركات أو أقساط أو مصاريف</div>
+            </div>
+            
+            <div style={{display:"grid", gap:8, maxHeight:"60vh", overflowY:"auto"}}>
+              {allUsers.map(u=>(
+                <div key={u.id} className="card" style={{padding:12, border:`1px solid ${u.is_super_admin ? GOLD : LINE}`, background: u.is_super_admin ? `${GOLD}0A` : CARD_SOFT}}>
+                  <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:8}}>
+                    <div>
+                      <div style={{fontWeight:800, fontSize:13, display:"flex", alignItems:"center", gap:6}}>
+                        {u.username || u.full_name || 'مستخدم'} 
+                        {u.is_super_admin && <span style={{background:GOLD, color:INK, fontSize:9, padding:"2px 6px", borderRadius:999, fontWeight:800}}><Shield size={9}/> SUPER ADMIN</span>}
+                      </div>
+                      <div style={{fontSize:11, color:MUTED, marginTop:3}}>ID: {u.id.slice(0,8)}... · أنشئ: {u.created_at ? new Date(u.created_at).toLocaleDateString('ar-JO') : '—'}</div>
+                      <div style={{fontSize:11, color:MUTED, marginTop:2}}>المنظمات: {u.orgNames?.join(', ') || 'لا يوجد'} ({u.orgCount})</div>
+                    </div>
+                    <div style={{display:"flex", gap:6}}>
+                      <button className="btn" onClick={async()=>{
+                        const { error } = await supabase.from('profiles').update({ is_super_admin: !u.is_super_admin }).eq('id', u.id);
+                        if (!error) {
+                          setAllUsers(prev=>prev.map(x=>x.id===u.id ? {...x, is_super_admin: !x.is_super_admin} : x));
+                          showToast(u.is_super_admin ? 'تم إزالة Super Admin' : 'تم جعله Super Admin');
+                        } else showToast(error.message);
+                      }} style={{background: u.is_super_admin ? `${RED}22` : `${GOLD}22`, border:`1px solid ${u.is_super_admin ? RED : GOLD}`, color: u.is_super_admin ? RED : GOLD, borderRadius:8, padding:"6px 10px", fontSize:11, fontWeight:700}}>
+                        {u.is_super_admin ? 'إزالة Super Admin' : 'جعله Super Admin'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+            
+            <div style={{background:`${TEAL}12`, borderRadius:8, padding:10, border:`1px solid ${TEAL}33`}}>
+              <div style={{fontSize:11, color:TEAL, fontWeight:700}}>ملاحظة:</div>
+              <div style={{fontSize:11, color:MUTED, marginTop:4}}>هذه الشاشة للتحكم بالمستخدمين فقط - لا تظهر حركات، أقساط، فواتير، أو أي بيانات مالية. فقط معلومات الحساب.</div>
+            </div>
+          </div>
+        </Modal>
+      )}
+
       {/* Month selector */}
+
       <div className="card" style={{ maxWidth: 980, margin: "0 auto 18px", padding: 14, borderColor: GOLD }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
           <div>
