@@ -7,9 +7,15 @@ import * as XLSX from "xlsx";
 import { Plus, ClipboardPaste, Target, TrendingUp, Wallet, AlertTriangle, X, Check, Pencil, Baby, Clock, Bell, PiggyBank, BarChart3, Languages, Download, Upload, Settings, Search, ArrowUpDown, LogOut, ChevronDown, Eye, Link2, Lock, User, SlidersHorizontal, Shield, Building2 } from "lucide-react";
 import { createClient } from "@supabase/supabase-js";
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-const supabase = createClient(supabaseUrl, supabaseAnonKey);
+// FIX: fallback + debug for Vercel env vars missing (سبب مرة بيزبط ومرة لا)
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || "https://hhuoqsambeoedxumamli.supabase.co";
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || "";
+const supabase = (() => {
+  if (!supabaseUrl || !supabaseAnonKey) {
+    console.error("Supabase env vars missing! Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in Vercel");
+  }
+  return createClient(supabaseUrl, supabaseAnonKey);
+})();
 
 // ---------- Supabase Client replaced storage ----------
 const storage = {
