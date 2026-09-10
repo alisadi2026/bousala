@@ -7,15 +7,13 @@ import * as XLSX from "xlsx";
 import { Plus, ClipboardPaste, Target, TrendingUp, Wallet, AlertTriangle, X, Check, Pencil, Baby, Clock, Bell, PiggyBank, BarChart3, Languages, Download, Upload, Settings, Search, ArrowUpDown, LogOut, ChevronDown, Eye, Link2, Lock, User, SlidersHorizontal, Shield, Building2 } from "lucide-react";
 import { createClient } from "@supabase/supabase-js";
 
-// FIX: fallback + debug for Vercel env vars missing (سبب مرة بيزبط ومرة لا)
+// FIX LOGIN FLAKINESS - Vercel env vars fallback + debug
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || "https://hhuoqsambeoedxumamli.supabase.co";
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || "";
-const supabase = (() => {
-  if (!supabaseUrl || !supabaseAnonKey) {
-    console.error("Supabase env vars missing! Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in Vercel");
-  }
-  return createClient(supabaseUrl, supabaseAnonKey);
-})();
+if (!import.meta.env.VITE_SUPABASE_URL || !import.meta.env.VITE_SUPABASE_ANON_KEY) {
+  console.warn("⚠️ VITE_SUPABASE_URL or ANON_KEY missing in Vercel! Using fallback. Set them in Vercel Settings > Environment Variables");
+}
+const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 // ---------- Supabase Client replaced storage ----------
 const storage = {
@@ -338,7 +336,7 @@ const translations = {
     appName: "بوصلة",
     tagline: "مصاريفك اليوم، واتجاهك المالي بكرة",
     loading: "جاري التحميل...",
-    authLoginTitle: "تسجيل الدخول", authSetupTitle: "إنشاء الحساب المحلي", authUsername: "اسم المستخدم", authPassword: "كلمة المرور", authPassword2: "تأكيد كلمة المرور", authLoginBtn: "دخول", authCreateBtn: "إنشاء الحساب", authSwitchSetup: "أول مرة؟ إنشاء حساب", authSwitchLogin: "لدي حساب بالفعل", authRequired: "أدخل اسم المستخدم وكلمة المرور", authPasswordShort: "كلمة المرور يجب أن تكون 4 أحرف على الأقل", authPasswordsMismatch: "كلمتا المرور غير متطابقتين", authInvalid: "اسم المستخدم أو كلمة المرور غير صحيحة", authCreated: "تم إنشاء الحساب بنجاح", settingsGeneral: "عام", settingsCategories: "الفئات", settingsBackup: "النسخ الاحتياطي", settingsAccount: "الحساب", exportMenu: "التصدير / الاستيراد", showDetails: "عرض التفاصيل", viewAll: "عرض الكل", linkedFixedLabel: "ربط بالمصروف الثابت", noLink: "بدون ربط", consumedLabel: "المستهلك", remainingLabel: "المتبقي", fixedConsumptionTitle: "استهلاك المصاريف الثابتة", noFixedLink: "لا يوجد ربط بمصروف ثابت", logout: "تسجيل الخروج", accountLocalNote: "هذا الدخول محلي على هذا المتصفح وليس نظام حسابات سحابياً.", recentViewAll: "عرض كل الحركات", financialDetails: "تفاصيل الوضع المالي", variableActualLabel: "المصاريف المتغيرة الفعلية", fixedActualConsumed: "المستهلك من المصاريف الثابتة", fixedBudgetLabel: "مخصص المصاريف الثابتة", totalActualLabel: "إجمالي المصروف الفعلي", close: "إغلاق", settingsButton: "الإعدادات", categoriesSettingsNote: "إدارة الفئات من هنا. تغيير الاسم يحدّث الحركات والميزانيات والمصاريف الثابتة المرتبطة بها.", addCategorySettings: "إضافة فئة", customCategories: "الفئات المخصصة", accountUsername: "المستخدم الحالي" , fixedLinkHelp: "إذا كانت الحركة دفعة لمصروف ثابت، اربطها هنا ليظهر الاستهلاك والمتبقي تلقائياً.", fixedConsumedOf: "{consumed} من {amount} د.أ" , linkedTag: "مرتبط" ,
+    authLoginTitle: "تسجيل الدخول", authSetupTitle: "إنشاء الحساب المحلي", authUsername: "اسم المستخدم", authPassword: "كلمة المرور", authPassword2: "تأكيد كلمة المرور", authLoginBtn: "دخول", authCreateBtn: "إنشاء الحساب", authSwitchSetup: "أول مرة؟ إنشاء حساب", authSwitchLogin: "لدي حساب بالفعل", authRequired: "أدخل اسم المستخدم وكلمة المرور", authPasswordShort: "كلمة المرور يجب أن تكون 4 أحرف على الأقل", authPasswordsMismatch: "كلمتا المرور غير متطابقتين", authInvalid: "اسم المستخدم أو كلمة المرور غير صحيحة", authCreated: "تم إنشاء الحساب بنجاح", settingsGeneral: "عام", settingsCategories: "الفئات", settingsBackup: "النسخ الاحتياطي", settingsAccount: "الحساب", exportMenu: "التصدير / الاستيراد", showDetails: "عرض التفاصيل", viewAll: "عرض الكل", linkedFixedLabel: "ربط بالمصروف الثابت", noLink: "بدون ربط", consumedLabel: "المستهلك", remainingLabel: "المتبقي", fixedConsumptionTitle: "استهلاك المصاريف الثابتة", noFixedLink: "لا يوجد ربط بمصروف ثابت", logout: "تسجيل الخروج", accountLocalNote: "دخول سحابي آمن عبر Supabase - متاح من أي جهاز.", recentViewAll: "عرض كل الحركات", financialDetails: "تفاصيل الوضع المالي", variableActualLabel: "المصاريف المتغيرة الفعلية", fixedActualConsumed: "المستهلك من المصاريف الثابتة", fixedBudgetLabel: "مخصص المصاريف الثابتة", totalActualLabel: "إجمالي المصروف الفعلي", close: "إغلاق", settingsButton: "الإعدادات", categoriesSettingsNote: "إدارة الفئات من هنا. تغيير الاسم يحدّث الحركات والميزانيات والمصاريف الثابتة المرتبطة بها.", addCategorySettings: "إضافة فئة", customCategories: "الفئات المخصصة", accountUsername: "المستخدم الحالي" , fixedLinkHelp: "إذا كانت الحركة دفعة لمصروف ثابت، اربطها هنا ليظهر الاستهلاك والمتبقي تلقائياً.", fixedConsumedOf: "{consumed} من {amount} د.أ" , linkedTag: "مرتبط" ,
     langToggle: "English",
 
     monthSelectorTitle: "الشهر المعروض",
@@ -659,7 +657,7 @@ const translations = {
     appName: "Compass",
     tagline: "Today's spending, tomorrow's direction",
     loading: "Loading...",
-    authLoginTitle: "Sign in", authSetupTitle: "Create local account", authUsername: "Username", authPassword: "Password", authPassword2: "Confirm password", authLoginBtn: "Sign in", authCreateBtn: "Create account", authSwitchSetup: "First time? Create account", authSwitchLogin: "I already have an account", authRequired: "Enter username and password", authPasswordShort: "Password must be at least 4 characters", authPasswordsMismatch: "Passwords do not match", authInvalid: "Invalid username or password", authCreated: "Account created", settingsGeneral: "General", settingsCategories: "Categories", settingsBackup: "Backup", settingsAccount: "Account", exportMenu: "Export / Import", showDetails: "View details", viewAll: "View all", linkedFixedLabel: "Link to fixed expense", noLink: "No link", consumedLabel: "Consumed", remainingLabel: "Remaining", fixedConsumptionTitle: "Fixed expense consumption", noFixedLink: "No fixed expense linked", logout: "Sign out", accountLocalNote: "This login is local to this browser, not a cloud account system.", recentViewAll: "View all transactions", financialDetails: "Financial details", variableActualLabel: "Actual variable spending", fixedActualConsumed: "Consumed from fixed expenses", fixedBudgetLabel: "Fixed expense allocation", totalActualLabel: "Total actual spending", close: "Close", settingsButton: "Settings", categoriesSettingsNote: "Manage categories here. Renaming updates linked transactions, budgets, and fixed expenses.", addCategorySettings: "Add category", customCategories: "Custom categories", accountUsername: "Current user", fixedLinkHelp: "If this transaction is a payment for a fixed expense, link it here to track consumed and remaining automatically.", fixedConsumedOf: "{consumed} of {amount} JOD", linkedTag: "Linked",
+    authLoginTitle: "Sign in", authSetupTitle: "Create local account", authUsername: "Username", authPassword: "Password", authPassword2: "Confirm password", authLoginBtn: "Sign in", authCreateBtn: "Create account", authSwitchSetup: "First time? Create account", authSwitchLogin: "I already have an account", authRequired: "Enter username and password", authPasswordShort: "Password must be at least 4 characters", authPasswordsMismatch: "Passwords do not match", authInvalid: "Invalid username or password", authCreated: "Account created", settingsGeneral: "General", settingsCategories: "Categories", settingsBackup: "Backup", settingsAccount: "Account", exportMenu: "Export / Import", showDetails: "View details", viewAll: "View all", linkedFixedLabel: "Link to fixed expense", noLink: "No link", consumedLabel: "Consumed", remainingLabel: "Remaining", fixedConsumptionTitle: "Fixed expense consumption", noFixedLink: "No fixed expense linked", logout: "Sign out", accountLocalNote: "Cloud login via Supabase - available from any device.", recentViewAll: "View all transactions", financialDetails: "Financial details", variableActualLabel: "Actual variable spending", fixedActualConsumed: "Consumed from fixed expenses", fixedBudgetLabel: "Fixed expense allocation", totalActualLabel: "Total actual spending", close: "Close", settingsButton: "Settings", categoriesSettingsNote: "Manage categories here. Renaming updates linked transactions, budgets, and fixed expenses.", addCategorySettings: "Add category", customCategories: "Custom categories", accountUsername: "Current user", fixedLinkHelp: "If this transaction is a payment for a fixed expense, link it here to track consumed and remaining automatically.", fixedConsumedOf: "{consumed} of {amount} JOD", linkedTag: "Linked",
     langToggle: "عربي",
 
     monthSelectorTitle: "Month in view",
@@ -3700,7 +3698,26 @@ export default function App() {
             </div>
           </div>}
           {settingsTab === "backup" && <div><div style={{fontSize:12,color:MUTED,marginBottom:12}}>{t("backupDesc")}</div><div style={{display:"flex",gap:8,flexWrap:"wrap"}}><button className="btn" onClick={exportJSON} style={modalActionStyle}><Download size={14}/>{t("exportJsonBtn")}</button><button className="btn" onClick={exportExcel} style={modalActionStyle}><Download size={14}/>{t("exportExcelBtn")}</button><button className="btn" onClick={()=>fileInputRef.current&&fileInputRef.current.click()} style={modalActionStyle}><Upload size={14}/>{t("importJsonBtn")}</button></div>{importPending&&<div style={{marginTop:12,background:CARD_SOFT,border:`1px solid ${RED}`,borderRadius:9,padding:12}}><div style={{fontWeight:700,color:RED,fontSize:13}}>{t("importConfirmTitle")}</div><div style={{fontSize:11.5,color:MUTED,margin:"6px 0 10px"}}>{t("importConfirmMsg")}</div><button className="btn" onClick={confirmImport} style={{background:RED,color:"#fff",borderRadius:7,padding:"6px 12px",fontWeight:700}}>{t("importConfirmBtn")}</button></div>}</div>}
-          {settingsTab === "account" && <div><div style={{background:CARD_SOFT,borderRadius:10,padding:14}}><div style={{display:"flex",alignItems:"center",gap:8,fontWeight:800}}><User size={16} color={GOLD}/>{t("accountUsername")}</div><div style={{fontSize:14,marginTop:8}}>{loginUser}</div><div style={{fontSize:11,color:MUTED,marginTop:8}}>{t("accountLocalNote")}</div></div></div>}
+          {settingsTab === "account" && <div><div style={{background:CARD_SOFT,borderRadius:10,padding:14}}><div style={{display:"flex",alignItems:"center",gap:8,fontWeight:800}}><User size={16} color={GOLD}/>{t("accountUsername")}</div><div style={{fontSize:14,marginTop:8}}>{loginUser}</div><div style={{marginTop:12,padding:10,background:CARD,borderRadius:8,border:`1px solid ${LINE}`}}>
+  <div style={{display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:800,color:GOLD}}>
+    <Shield size={14}/> {isSuperAdmin ? "Super Admin - كل المنظمات" : "المنظمة الحالية"}
+  </div>
+  <div style={{fontSize:13,marginTop:6}}>{orgName} {currentOrgId ? `(${currentOrgId.slice(0,8)}...)` : ""}</div>
+  {isSuperAdmin && allOrgs.length>0 && <div style={{marginTop:8}}>
+    <Label>تبديل المنظمة (Super Admin)</Label>
+    <select className="field" value={currentOrgId||""} onChange={e=>{
+      const newId=e.target.value;
+      setCurrentOrgId(newId);
+      localStorage.setItem("bousala_org", newId);
+      const found=allOrgs.find(o=>o.id===newId);
+      if(found) setOrgName(found.name);
+      window.location.reload();
+    }}>
+      {allOrgs.map(o=><option key={o.id} value={o.id}>{o.name} - {o.id.slice(0,8)}</option>)}
+    </select>
+    <div style={{fontSize:11,color:MUTED,marginTop:4}}>عدد المنظمات: {allOrgs.length}</div>
+  </div>}
+</div><div style={{fontSize:11,color:MUTED,marginTop:8}}>{t("accountLocalNote")}</div></div></div>}
         </Modal>
       )}
 
