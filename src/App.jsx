@@ -4,7 +4,7 @@ import {
   ResponsiveContainer, CartesianGrid, Legend
 } from "recharts";
 import * as XLSX from "xlsx";
-import { Plus, ClipboardPaste, Target, TrendingUp, Wallet, AlertTriangle, X, Check, Pencil, Baby, Clock, Bell, PiggyBank, BarChart3, Languages, Download, Upload, Settings, Search, ArrowUpDown, LogOut, ChevronDown, Eye, Link2, Lock, User, Users, SlidersHorizontal, Shield, Building2 } from "lucide-react";
+import { Plus, ClipboardPaste, Target, TrendingUp, Wallet, AlertTriangle, X, Check, Pencil, Baby, Clock, Bell, PiggyBank, BarChart3, Languages, Download, Upload, Settings, Search, ArrowUpDown, LogOut, ChevronDown, Eye, Link2, Lock, User, SlidersHorizontal, Shield, Building2 } from "lucide-react";
 import { createClient } from "@supabase/supabase-js";
 
 // FIX LOGIN FLAKINESS - Vercel env vars fallback + debug
@@ -1002,14 +1002,6 @@ export default function App() {
   const [allOrgs, setAllOrgs] = useState([]);
   const [allUsers, setAllUsers] = useState([]);
   const [showUsersManagement, setShowUsersManagement] = useState(false);
-  const [showOrgsManagement, setShowOrgsManagement] = useState(false);
-  const [orgMembersDetailed, setOrgMembersDetailed] = useState([]);
-  const [availablePrograms, setAvailablePrograms] = useState([]);
-  const [selectedProgram, setSelectedProgram] = useState(()=>localStorage.getItem('bousala_program')||'bousala');
-  const [allPrograms, setAllPrograms] = useState([]);
-  const [showProgramsManagement, setShowProgramsManagement] = useState(false);
-  const [programForm, setProgramForm] = useState({ slug: '', name: '', description: '', icon: '📦', color: '#C9A24B', route: '', sort_order: 0, editingId: null });
-  const [programAssignments, setProgramAssignments] = useState({});
   const [orgName, setOrgName] = useState("");
   const [loadingData, setLoadingData] = useState(true);
 
@@ -1034,21 +1026,6 @@ export default function App() {
               return { ...p, orgNames, orgCount: memberOrgs.length };
             });
             setAllUsers(enriched);
-          }
-          try {
-            const { data: progs } = await supabase.from('user_available_programs').select('*').eq('user_id', userId).order('sort_order');
-            if (progs && progs.length>0) {
-              setAvailablePrograms(progs);
-            } else {
-              const { data: allProgs } = await supabase.from('programs').select('*').eq('is_active', true).order('sort_order');
-              if (allProgs) setAvailablePrograms(allProgs.map(p=>({ ...p, program_name: p.name, slug: p.slug, icon: p.icon, color: p.color })));
-            }
-            if (prof.is_super_admin) {
-              const { data: allProgsAdmin } = await supabase.from('programs').select('*').order('sort_order');
-              if (allProgsAdmin) setAllPrograms(allProgsAdmin);
-            }
-          } catch (e) {
-            setAvailablePrograms([{ slug: 'bousala', program_name: 'بوصلة', icon: '🧭', color: '#C9A24B' }]);
           }
         } catch (e) {
           console.error('Failed to fetch users:', e);
@@ -1093,6 +1070,8 @@ export default function App() {
         { data: goalsData },
         { data: anchorsData },
         { data: categoriesData },
+        { data: budgetsData },
+        { data: savingsData },
       ] = await Promise.all([
         supabase.from('expense_entries').select('*').eq('organization_id', orgId).order('date', { ascending: false }),
         supabase.from('income_sources').select('*').eq('organization_id', orgId),
@@ -1103,6 +1082,8 @@ export default function App() {
         supabase.from('goals').select('*').eq('organization_id', orgId),
         supabase.from('fiscal_anchors').select('*').eq('organization_id', orgId),
         supabase.from('categories').select('*').eq('organization_id', orgId),
+        supabase.from('budgets').select('*').eq('organization_id', orgId),
+        supabase.from('savings_log').select('*').eq('organization_id', orgId).order('month', { ascending: true }),
       ]);
       
       // SECURITY FIX: fetch amount history only for this org's fixed expenses
@@ -1114,6 +1095,15 @@ export default function App() {
       }
       if (entriesData) setEntries(entriesData.map(e=>({ ...e, linkedFixedExpenseId: e.linked_fixed_expense_id })));
       if (incomeData) setIncomeSources(incomeData.map(i=>({ id: i.id, name: i.name, amount: Number(i.amount), startDate: i.start_date, endDate: i.end_date })));
+      if (budgetsData) setBudgets(budgetsData.map(b=>({ id: b.id, category: b.category, monthlyLimit: Number(b.monthly_limit), alertAt: Number(b.alert_at) })));
+      if (savingsData) setSavingsLog(savingsData.map(s=>({ id: s.id, month: s.month, amount: Number(s.amount), note: s.note || "" })));
+      if (categoriesData && categoriesData.length>0) {
+        const cats = categoriesData.map(c=>({ key: c.key, color: c.color, words: c.words||[], id: c.id }));
+        // Ensure أخرى is last
+        const other = cats.find(c=>c.key==="أخرى");
+        const rest = cats.filter(c=>c.key!=="أخرى");
+        setCategories(other ? [...rest, other] : [...rest, { key: "أخرى", color: "#6B7280", words: [] }]);
+      }
       if (fixedData) {
         setFixedExpenses(fixedData.map(f=>{
           const hist = (fixedHistData||[]).filter(h=>h.fixed_expense_id===f.id).map(h=>({ id: h.id, amount: Number(h.amount), effectiveFrom: h.effective_from }));
@@ -1450,26 +1440,43 @@ export default function App() {
     showToast(t("toastEdited"));
   }
 
-  function addCategory() {
+  async function addCategory() {
     const name = categoryForm.name.trim();
     if (!name) return showToast(t("toastEnterCategoryName"));
     if (categories.some((c) => c.key === name)) return showToast(t("toastCategoryExists"));
-    setCategories((prev) => [...prev.slice(0, -1), { key: name, color: categoryForm.color, words: [] }, prev[prev.length - 1]]);
+    if (!currentOrgId) return showToast("لا يوجد منظمة");
+    const { data, error } = await supabase.from('categories').insert({
+      organization_id: currentOrgId,
+      key: name,
+      color: categoryForm.color,
+      words: []
+    }).select().single();
+    if (error) return showToast(error.message);
+    setCategories((prev) => [...prev.slice(0, -1), { key: data.key, color: data.color, words: data.words||[], id: data.id }, prev[prev.length - 1]]);
     setCategoryForm({ name: "", color: CATEGORY_COLOR_CHOICES[0] });
     setShowCategoryForm(false);
     showToast(t("toastCategoryAdded"));
   }
-  function removeCategory(key) {
+  async function removeCategory(key) {
     if (key === "أخرى") return;
+    const cat = categories.find(c=>c.key===key);
+    if (cat?.id) {
+      const { error } = await supabase.from('categories').delete().eq('id', cat.id);
+      if (error) return showToast(error.message);
+    }
     setCategories((prev) => prev.filter((c) => c.key !== key));
   }
-  function renameCategory(oldKey, newKey) {
+  async function renameCategory(oldKey, newKey) {
     if (oldKey === "أخرى") return;
     const trimmed = (newKey || "").trim();
     if (!trimmed || trimmed === oldKey) return;
     if (categories.some((c) => c.key === trimmed)) return showToast(t("toastCategoryExists"));
+    const cat = categories.find(c=>c.key===oldKey);
+    if (cat?.id) {
+      const { error } = await supabase.from('categories').update({ key: trimmed }).eq('id', cat.id);
+      if (error) return showToast(error.message);
+    }
     setCategories((prev) => prev.map((c) => (c.key === oldKey ? { ...c, key: trimmed } : c)));
-    // Cascade the rename everywhere the old category key is referenced, so nothing becomes orphaned.
     setEntries((prev) => prev.map((e) => (e.category === oldKey ? { ...e, category: trimmed } : e)));
     setFixedExpenses((prev) => prev.map((f) => (f.category === oldKey ? { ...f, category: trimmed } : f)));
     setBudgets((prev) => prev.map((b) => (b.category === oldKey ? { ...b, category: trimmed } : b)));
@@ -1479,21 +1486,32 @@ export default function App() {
     showToast(t("toastCategoryRenamed"));
   }
 
-  function addIncomeSource() {
+  async function addIncomeSource() {
     if (!incomeForm.name.trim()) return showToast(t("toastEnterIncomeName"));
     const amount = parseFloat(incomeForm.amount);
     if (!amount || amount <= 0) return showToast(t("toastValidAmount"));
     if (!incomeForm.startDate) return showToast(t("toastPickStartDate"));
     if (incomeForm.endDate && incomeForm.endDate <= incomeForm.startDate) return showToast(t("toastEndBeforeStart"));
+    if (!currentOrgId) return showToast("لا يوجد منظمة");
+    const { data, error } = await supabase.from('income_sources').insert({
+      organization_id: currentOrgId,
+      name: incomeForm.name.trim(),
+      amount,
+      start_date: incomeForm.startDate,
+      end_date: incomeForm.endDate || null
+    }).select().single();
+    if (error) return showToast(error.message);
     setIncomeSources((prev) => [
       ...prev,
-      { id: Math.random().toString(36).slice(2), name: incomeForm.name.trim(), amount, startDate: incomeForm.startDate, endDate: incomeForm.endDate || null },
+      { id: data.id, name: data.name, amount: data.amount, startDate: data.start_date, endDate: data.end_date },
     ]);
     setIncomeForm({ name: "", amount: "", startDate: todayISO(), endDate: "" });
     setShowIncomeForm(false);
     showToast(t("toastIncomeAdded"));
   }
-  function removeIncomeSource(id) {
+  async function removeIncomeSource(id) {
+    const { error } = await supabase.from('income_sources').delete().eq('id', id);
+    if (error) return showToast(error.message);
     setIncomeSources((prev) => prev.filter((s) => s.id !== id));
   }
   function startEditIncome(s) {
@@ -1504,12 +1522,19 @@ export default function App() {
     setEditingIncomeId(null);
     setEditIncomeForm(null);
   }
-  function saveEditIncome() {
+  async function saveEditIncome() {
     if (!editIncomeForm.name.trim()) return showToast(t("toastEnterIncomeName"));
     const amount = parseFloat(editIncomeForm.amount);
     if (!amount || amount <= 0) return showToast(t("toastValidAmount"));
     if (!editIncomeForm.startDate) return showToast(t("toastPickStartDate"));
     if (editIncomeForm.endDate && editIncomeForm.endDate <= editIncomeForm.startDate) return showToast(t("toastEndBeforeStart"));
+    const { error } = await supabase.from('income_sources').update({
+      name: editIncomeForm.name.trim(),
+      amount,
+      start_date: editIncomeForm.startDate,
+      end_date: editIncomeForm.endDate || null
+    }).eq('id', editingIncomeId);
+    if (error) return showToast(error.message);
     setIncomeSources((prev) =>
       prev.map((s) =>
         s.id === editingIncomeId
@@ -1522,17 +1547,37 @@ export default function App() {
     showToast(t("toastEdited"));
   }
 
-  function addSavingsEntry() {
+  async function addSavingsEntry() {
     if (!savingsForm.month) return showToast(t("toastPickMonth"));
     const amount = parseFloat(savingsForm.amount);
     if (isNaN(amount)) return showToast(t("toastValidAmount"));
     if (savingsLog.some((s) => s.month === savingsForm.month)) return showToast(t("toastMonthAlreadyLogged"));
-    setSavingsLog((prev) => [...prev, { id: Math.random().toString(36).slice(2), month: savingsForm.month, amount, note: savingsForm.note || "" }]);
+    if (!currentOrgId) return showToast("لا يوجد منظمة");
+    try {
+      const { data, error } = await supabase.from('savings_log').insert({
+        organization_id: currentOrgId,
+        month: savingsForm.month,
+        amount,
+        note: savingsForm.note || ""
+      }).select().single();
+      if (error) throw error;
+      setSavingsLog((prev) => [...prev, { id: data.id, month: data.month, amount: data.amount, note: data.note || "" }]);
+    } catch (e) {
+      // Fallback to local if table doesn't exist yet
+      console.warn("savings_log table missing, using local", e);
+      setSavingsLog((prev) => [...prev, { id: Math.random().toString(36).slice(2), month: savingsForm.month, amount, note: savingsForm.note || "" }]);
+    }
     setSavingsForm({ month: todayISO().slice(0, 7), amount: "", note: "" });
     setShowSavingsForm(false);
     showToast(t("toastSavingsAdded"));
   }
-  function removeSavingsEntry(id) {
+  async function removeSavingsEntry(id) {
+    try {
+      const { error } = await supabase.from('savings_log').delete().eq('id', id);
+      if (error) throw error;
+    } catch (e) {
+      console.warn("savings_log delete failed", e);
+    }
     setSavingsLog((prev) => prev.filter((s) => s.id !== id));
   }
   function startEditSavings(s) {
@@ -1543,9 +1588,19 @@ export default function App() {
     setEditingSavingsId(null);
     setEditSavingsForm(null);
   }
-  function saveEditSavings() {
+  async function saveEditSavings() {
     const amount = parseFloat(editSavingsForm.amount);
     if (isNaN(amount)) return showToast(t("toastValidAmount"));
+    try {
+      const { error } = await supabase.from('savings_log').update({
+        month: editSavingsForm.month,
+        amount,
+        note: editSavingsForm.note || ""
+      }).eq('id', editingSavingsId);
+      if (error) throw error;
+    } catch (e) {
+      console.warn("savings_log update failed", e);
+    }
     setSavingsLog((prev) => prev.map((s) => (s.id === editingSavingsId ? { ...s, month: editSavingsForm.month, amount, note: editSavingsForm.note || "" } : s)));
     setEditingSavingsId(null);
     setEditSavingsForm(null);
@@ -1651,9 +1706,16 @@ export default function App() {
     setEditingFixedId(null);
     setEditFixedForm(null);
   }
-  function saveEditFixed() {
+  async function saveEditFixed() {
     if (!editFixedForm.name.trim()) return showToast(t("toastEnterExpenseName"));
     if (editFixedForm.endDate && editFixedForm.endDate <= editFixedForm.startDate) return showToast(t("toastEndBeforeStart"));
+    const { error } = await supabase.from('fixed_expenses').update({
+      name: editFixedForm.name.trim(),
+      category: editFixedForm.category,
+      start_date: editFixedForm.startDate,
+      end_date: editFixedForm.endDate || null
+    }).eq('id', editingFixedId);
+    if (error) return showToast(error.message);
     setFixedExpenses((prev) =>
       prev.map((f) =>
         f.id === editingFixedId
@@ -1672,25 +1734,34 @@ export default function App() {
   function closeAmountChangeForm() {
     setAmountChangeFormFor(null);
   }
-  function addAmountChange() {
+  async function addAmountChange() {
     const amount = parseFloat(amountChangeForm.amount);
     if (!amount || amount <= 0) return showToast(t("toastValidAmount"));
     if (!amountChangeForm.effectiveFrom) return showToast(t("toastPickEffectiveDate"));
+    const { data, error } = await supabase.from('fixed_expense_amount_history').insert({
+      fixed_expense_id: amountChangeFormFor,
+      amount,
+      effective_from: amountChangeForm.effectiveFrom
+    }).select().single();
+    if (error) return showToast(error.message);
     setFixedExpenses((prev) =>
       prev.map((f) =>
         f.id !== amountChangeFormFor
           ? f
-          : { ...f, amountHistory: [...(f.amountHistory || []), { id: Math.random().toString(36).slice(2), amount, effectiveFrom: amountChangeForm.effectiveFrom }] }
+          : { ...f, amountHistory: [...(f.amountHistory || []), { id: data.id, amount, effectiveFrom: data.effective_from || amountChangeForm.effectiveFrom }] }
       )
     );
     setAmountChangeFormFor(null);
     showToast(t("toastValueChangeRecorded"));
   }
-  function removeAmountChangeEntry(fixedId, entryId) {
+  async function removeAmountChangeEntry(fixedId, entryId) {
+    const targetFixed = fixedExpenses.find(f=>f.id===fixedId);
+    if ((targetFixed?.amountHistory||[]).length <= 1) return showToast("لا يمكن حذف آخر قيمة");
+    const { error } = await supabase.from('fixed_expense_amount_history').delete().eq('id', entryId);
+    if (error) return showToast(error.message);
     setFixedExpenses((prev) =>
       prev.map((f) => {
         if (f.id !== fixedId) return f;
-        if ((f.amountHistory || []).length <= 1) return f; // keep at least one entry
         return { ...f, amountHistory: f.amountHistory.filter((h) => h.id !== entryId) };
       })
     );
@@ -1703,11 +1774,16 @@ export default function App() {
     setEditingAmountChange(null);
     setEditAmountChangeForm(null);
   }
-  function saveEditAmountChange() {
+  async function saveEditAmountChange() {
     const amount = parseFloat(editAmountChangeForm.amount);
     if (!amount || amount <= 0) return showToast(t("toastValidAmount"));
     if (!editAmountChangeForm.effectiveFrom) return showToast(t("toastPickDate"));
     const { fixedId, entryId } = editingAmountChange;
+    const { error } = await supabase.from('fixed_expense_amount_history').update({
+      amount,
+      effective_from: editAmountChangeForm.effectiveFrom
+    }).eq('id', entryId);
+    if (error) return showToast(error.message);
     setFixedExpenses((prev) =>
       prev.map((f) =>
         f.id !== fixedId
@@ -1728,7 +1804,7 @@ export default function App() {
     setEditingGoalId(null);
     setEditGoalForm(null);
   }
-  function saveEditGoal() {
+  async function saveEditGoal() {
     if (!editGoalForm.name.trim()) return showToast(t("toastEnterGoalName"));
     const target = parseFloat(editGoalForm.target);
     if (!target || target <= 0) return showToast(t("toastEnterGoalAmount"));
@@ -1736,6 +1812,16 @@ export default function App() {
     if (editGoalForm.funding === "fixed" && (!parseFloat(editGoalForm.fixedAmount) || parseFloat(editGoalForm.fixedAmount) <= 0)) {
       return showToast(t("toastEnterFixedMonthly"));
     }
+    const { error } = await supabase.from('goals').update({
+      name: editGoalForm.name.trim(),
+      target,
+      deadline: editGoalForm.deadline,
+      funding: editGoalForm.funding,
+      fixed_amount: parseFloat(editGoalForm.fixedAmount) || 0,
+      saved: parseFloat(editGoalForm.saved) || 0,
+      priority: parseInt(editGoalForm.priority) || 0
+    }).eq('id', editingGoalId);
+    if (error) return showToast(error.message);
     setGoals((prev) =>
       prev.map((g) =>
         g.id === editingGoalId
@@ -1857,7 +1943,11 @@ export default function App() {
     closeYearForm();
     showToast(t("toastYearAdded"));
   }
-  function removeChildYear(childId, yearId) {
+  async function removeChildYear(childId, yearId) {
+    const { error } = await supabase.from('school_years').delete().eq('id', yearId);
+    if (error) return showToast(error.message);
+    // Also delete installments for that year
+    await supabase.from('installments').delete().eq('school_year_id', yearId);
     setChildren((prev) => prev.map((c) => (c.id === childId ? { ...c, years: c.years.filter((y) => y.id !== yearId) } : c)));
   }
   function startEditYear(childId, y) {
@@ -1868,11 +1958,58 @@ export default function App() {
     setEditingYear(null);
     setEditYearForm(null);
   }
-  function saveEditYear() {
+  async function saveEditYear() {
     if (!parseFloat(editYearForm.annualFee)) return showToast(t("toastEnterAnnualFee"));
     if (!editYearForm.startDate) return showToast(t("toastPickFirstInstallmentDate"));
     if (!parseInt(editYearForm.installmentsCount)) return showToast(t("toastEnterInstallmentsCount"));
     if (parseFloat(editYearForm.downPayment) > 0 && !editYearForm.downPaymentDate) return showToast(t("toastPickDownPaymentDate"));
+    const { error } = await supabase.from('school_years').update({
+      stage: editYearForm.stage,
+      label: editYearForm.label.trim() || (editYearForm.stage === "university" ? t("stageUniversity") : t("stageSchool")),
+      annual_fee: parseFloat(editYearForm.annualFee) || 0,
+      down_payment: parseFloat(editYearForm.downPayment) || 0,
+      down_payment_date: editYearForm.downPaymentDate || null,
+      installments_count: parseInt(editYearForm.installmentsCount) || 1,
+      start_date: editYearForm.startDate
+    }).eq('id', editingYear.yearId);
+    if (error) return showToast(error.message);
+    // Regenerate installments: delete old and insert new, preserving paid status
+    const currentYear = children.find(c=>c.id===editingYear.childId)?.years.find(y=>y.id===editingYear.yearId);
+    if (currentYear) {
+      const updated = {
+        ...currentYear,
+        stage: editYearForm.stage,
+        label: editYearForm.label.trim() || (editYearForm.stage === "university" ? t("stageUniversity") : t("stageSchool")),
+        annualFee: parseFloat(editYearForm.annualFee) || 0,
+        downPayment: parseFloat(editYearForm.downPayment) || 0,
+        downPaymentDate: editYearForm.downPaymentDate || null,
+        installmentsCount: parseInt(editYearForm.installmentsCount) || 1,
+        startDate: editYearForm.startDate,
+      };
+      const freshInstallments = generateInstallments(updated);
+      const freshWithPaid = freshInstallments.map((ni) => {
+        const old = currentYear.installments.find((oi) => oi.month === ni.month);
+        return old ? { ...ni, paid: old.paid, paidAmount: installmentPaidAmount(old), paymentDate: old.paymentDate || null } : ni;
+      });
+      // Delete old installments from DB
+      await supabase.from('installments').delete().eq('school_year_id', editingYear.yearId);
+      // Insert new ones
+      const toInsert = freshWithPaid.map(ins=>({
+        id: ins.id,
+        school_year_id: editingYear.yearId,
+        organization_id: currentOrgId,
+        child_id: editingYear.childId,
+        amount: ins.amount,
+        month: ins.month,
+        paid: ins.paid || false,
+        paid_amount: ins.paidAmount || 0,
+        payment_date: ins.paymentDate || null,
+        is_down_payment: ins.isDownPayment || false,
+        locked: ins.locked || false
+      }));
+      const { error: insErr } = await supabase.from('installments').insert(toInsert);
+      if (insErr) console.error(insErr);
+    }
     setChildren((prev) =>
       prev.map((c) => {
         if (c.id !== editingYear.childId) return c;
@@ -1891,7 +2028,6 @@ export default function App() {
               startDate: editYearForm.startDate,
             };
             const freshInstallments = generateInstallments(updated);
-            // keep "paid" status for installments whose due month didn't change
             updated.installments = freshInstallments.map((ni) => {
               const old = y.installments.find((oi) => oi.month === ni.month);
               return old ? { ...ni, paid: old.paid, paidAmount: installmentPaidAmount(old), paymentDate: old.paymentDate || null } : ni;
@@ -1943,31 +2079,38 @@ export default function App() {
     setEditInstallmentAmount("");
     setEditInstallmentDate("");
   }
-  function saveEditInstallmentAmount() {
+  async function saveEditInstallmentAmount() {
     const amount = parseFloat(editInstallmentAmount);
     if (!amount || amount <= 0) return showToast(t("toastValidAmount"));
     if (!editInstallmentDate) return showToast(t("toastPickDate"));
     const { childId, yearId, installmentId } = editingInstallment;
     const newMonth = lastDayOfMonthISO(editInstallmentDate);
     let overshoot = false;
+    let newInstallments = [];
     setChildren((prev) =>
-      prev.map((c) =>
-        c.id !== childId
-          ? c
-          : {
-              ...c,
-              years: c.years.map((y) => {
-                if (y.id !== yearId) return y;
-                // apply the date change first, then rebalance amounts (rebalance also marks it locked)
-                const withDate = { ...y, installments: y.installments.map((ins) => (ins.id === installmentId ? { ...ins, month: newMonth } : ins)) };
-                const result = rebalanceInstallments(withDate, installmentId, amount);
-                overshoot = result.overshoot;
-                return { ...y, installments: result.installments };
-              }),
-            }
-      )
+      prev.map((c) => {
+        if (c.id !== childId) return c;
+        return {
+          ...c,
+          years: c.years.map((y) => {
+            if (y.id !== yearId) return y;
+            const withDate = { ...y, installments: y.installments.map((ins) => (ins.id === installmentId ? { ...ins, month: newMonth } : ins)) };
+            const result = rebalanceInstallments(withDate, installmentId, amount);
+            overshoot = result.overshoot;
+            newInstallments = result.installments;
+            return { ...y, installments: result.installments };
+          }),
+        };
+      })
     );
-
+    // Persist to DB
+    for (const ins of newInstallments) {
+      await supabase.from('installments').update({
+        amount: ins.amount,
+        month: ins.month,
+        locked: ins.locked || false
+      }).eq('id', ins.id);
+    }
     setEditingInstallment(null);
     setEditInstallmentAmount("");
     setEditInstallmentDate("");
@@ -1983,11 +2126,23 @@ export default function App() {
     setEditInstallmentPaymentAmount("");
     setEditInstallmentPaymentDate("");
   }
-  function saveEditInstallmentPayment() {
+  async function saveEditInstallmentPayment() {
     const paidAmount = parseFloat(editInstallmentPaymentAmount);
     if (!Number.isFinite(paidAmount) || paidAmount < 0) return showToast(t("toastValidAmount"));
     if (paidAmount > 0 && !editInstallmentPaymentDate) return showToast(t("toastPickDate"));
     const { childId, yearId, installmentId } = editingInstallmentPayment;
+    // Find original amount to cap
+    let originalAmount = 0;
+    for (const c of children) if (c.id===childId) for (const y of c.years) if (y.id===yearId) for (const ins of y.installments) if (ins.id===installmentId) originalAmount = Number(ins.amount)||0;
+    const capped = Math.min(originalAmount, Math.max(0, paidAmount));
+    const isPaid = capped >= originalAmount && originalAmount>0;
+    const paymentDate = capped > 0 ? editInstallmentPaymentDate : null;
+    const { error } = await supabase.from('installments').update({
+      paid_amount: capped,
+      paid: isPaid,
+      payment_date: paymentDate
+    }).eq('id', installmentId);
+    if (error) return showToast(error.message);
     setChildren((prev) =>
       prev.map((c) =>
         c.id !== childId
@@ -2001,12 +2156,11 @@ export default function App() {
                       ...y,
                       installments: y.installments.map((ins) => {
                         if (ins.id !== installmentId) return ins;
-                        const capped = Math.min(Number(ins.amount) || 0, Math.max(0, paidAmount));
                         return {
                           ...ins,
                           paidAmount: capped,
-                          paid: capped >= (Number(ins.amount) || 0),
-                          paymentDate: capped > 0 ? editInstallmentPaymentDate : null,
+                          paid: isPaid,
+                          paymentDate: paymentDate,
                         };
                       }),
                     }
@@ -2017,34 +2171,93 @@ export default function App() {
     cancelEditInstallmentPayment();
     showToast(t("toastInstallmentEdited"));
   }
-  function runDeferInstallment(childId, yearId, installmentId, mode) {
+  async function runDeferInstallment(childId, yearId, installmentId, mode) {
+    let newInstallments = [];
     setChildren((prev) =>
-      prev.map((c) =>
-        c.id !== childId
-          ? c
-          : { ...c, years: c.years.map((y) => (y.id !== yearId ? y : { ...y, installments: deferInstallment(y, installmentId, mode) })) }
-      )
+      prev.map((c) => {
+        if (c.id !== childId) return c;
+        return { ...c, years: c.years.map((y) => {
+          if (y.id !== yearId) return y;
+          const deferred = deferInstallment(y, installmentId, mode);
+          newInstallments = deferred;
+          return { ...y, installments: deferred };
+        }) };
+      })
     );
+    // Persist deferred installments
+    for (const ins of newInstallments) {
+      await supabase.from('installments').update({
+        amount: ins.amount,
+        month: ins.month
+      }).eq('id', ins.id);
+    }
+    // If append mode created new installment, insert it
+    const existingIds = children.find(c=>c.id===childId)?.years.find(y=>y.id===yearId)?.installments.map(i=>i.id) || [];
+    const newOnes = newInstallments.filter(ins=>!existingIds.includes(ins.id));
+    if (newOnes.length>0) {
+      const toInsert = newOnes.map(ins=>({
+        id: ins.id,
+        school_year_id: yearId,
+        organization_id: currentOrgId,
+        child_id: childId,
+        amount: ins.amount,
+        month: ins.month,
+        paid: false,
+        paid_amount: 0,
+        is_down_payment: false
+      }));
+      await supabase.from('installments').insert(toInsert);
+    }
     setDeferConfirm(null);
     showToast(mode === "append" ? t("toastDeferAppended") : t("toastDeferSpread"));
   }
 
   // ---------- budgets ----------
-  function addBudget() {
+  async function addBudget() {
     const monthlyLimit = parseFloat(budgetForm.monthlyLimit);
     if (!budgetForm.category) return showToast(t("toastPickCategory"));
     if (!monthlyLimit || monthlyLimit <= 0) return showToast(t("toastEnterValidBudget"));
     if (budgets.some((b) => b.category === budgetForm.category)) return showToast(t("toastBudgetExists"));
-    setBudgets((prev) => [...prev, { id: Math.random().toString(36).slice(2), category: budgetForm.category, monthlyLimit, alertAt: parseFloat(budgetForm.alertAt) || 80 }]);
+    if (!currentOrgId) return showToast("لا يوجد منظمة");
+    try {
+      const { data, error } = await supabase.from('budgets').insert({
+        organization_id: currentOrgId,
+        category: budgetForm.category,
+        monthly_limit: monthlyLimit,
+        alert_at: parseFloat(budgetForm.alertAt) || 80
+      }).select().single();
+      if (error) throw error;
+      setBudgets((prev) => [...prev, { id: data.id, category: data.category, monthlyLimit: data.monthly_limit, alertAt: data.alert_at }]);
+    } catch (e) {
+      console.warn("budgets table missing, using local", e);
+      setBudgets((prev) => [...prev, { id: Math.random().toString(36).slice(2), category: budgetForm.category, monthlyLimit, alertAt: parseFloat(budgetForm.alertAt) || 80 }]);
+    }
     setBudgetForm({ category: "بقالة", monthlyLimit: "", alertAt: "80" });
     setShowBudgetForm(false);
     showToast(t("toastBudgetAdded"));
   }
-  function removeBudget(id) { setBudgets((prev) => prev.filter((b) => b.id !== id)); }
+  async function removeBudget(id) {
+    try {
+      const { error } = await supabase.from('budgets').delete().eq('id', id);
+      if (error) throw error;
+    } catch (e) {
+      console.warn("budgets delete failed", e);
+    }
+    setBudgets((prev) => prev.filter((b) => b.id !== id));
+  }
   function startEditBudget(b) { setEditingBudgetId(b.id); setEditBudgetForm({ category: b.category, monthlyLimit: b.monthlyLimit, alertAt: b.alertAt || 80 }); }
-  function saveEditBudget() {
+  async function saveEditBudget() {
     const monthlyLimit = parseFloat(editBudgetForm.monthlyLimit);
     if (!monthlyLimit || monthlyLimit <= 0) return showToast(t("toastEnterValidBudget"));
+    try {
+      const { error } = await supabase.from('budgets').update({
+        monthly_limit: monthlyLimit,
+        alert_at: parseFloat(editBudgetForm.alertAt) || 80
+      }).eq('id', editingBudgetId);
+      if (error) throw error;
+    } catch (e) {
+      console.warn("budgets update failed", e);
+    }
     setBudgets((prev) => prev.map((b) => b.id === editingBudgetId ? { ...b, monthlyLimit, alertAt: parseFloat(editBudgetForm.alertAt) || 80 } : b));
     setEditingBudgetId(null); setEditBudgetForm(null); showToast(t("toastBudgetEdited"));
   }
@@ -2488,61 +2701,29 @@ export default function App() {
             <div style={{ fontSize: 12, color: MUTED }}>{t("tagline")} {currentOrgId && `· ${orgName}`}</div>
           </div>
         </div>
-        <div style={{display:"flex", alignItems:"center", gap:8, flexWrap:"wrap"}}>
-          {availablePrograms.length>0 && (
-            <div style={{display:"flex", alignItems:"center", gap:6, background:CARD_SOFT, borderRadius:9, padding:"6px 10px", border:`1px solid ${LINE}`}}>
-              <span style={{fontSize:12}}>🧩</span>
-              <select className="field" value={selectedProgram} onChange={e=>{
-                setSelectedProgram(e.target.value);
-                localStorage.setItem('bousala_program', e.target.value);
-              }} style={{background:"transparent", border:"none", color:PAPER, fontSize:12, fontWeight:700, minWidth:120}}>
-                {availablePrograms.map(p=><option key={p.slug||p.program_id} value={p.slug} style={{background:CARD}}>{p.icon||'📦'} {p.program_name||p.name}</option>)}
-              </select>
-            </div>
-          )}
-          {isSuperAdmin && (
-            <div style={{display:"flex", alignItems:"center", gap:8, flexWrap:"wrap"}}>
-              {allOrgs.length>0 && (
-                <div style={{display:"flex", alignItems:"center", gap:8, background:CARD_SOFT, borderRadius:9, padding:"6px 10px", border:`1px solid ${LINE}`}}>
-                  <Building2 size={14} color={GOLD}/>
-                  <select className="field" value={currentOrgId||""} onChange={e=>{
-                    const newId=e.target.value;
-                    setCurrentOrgId(newId);
-                    localStorage.setItem("bousala_org", newId);
-                    const found=allOrgs.find(o=>o.id===newId);
-                    if(found) setOrgName(found.name);
-                    window.location.reload();
-                  }} style={{background:"transparent", border:"none", color:PAPER, fontSize:11, fontWeight:700, minWidth:120}}>
-                    {allOrgs.map(o=><option key={o.id} value={o.id} style={{background:CARD}}>{o.name} ({o.id.slice(0,6)})</option>)}
-                  </select>
-                  <span style={{fontSize:11, color:MUTED}}>{allOrgs.length} orgs</span>
-                </div>
-              )}
-              <button className="btn" onClick={async()=>{
-                setShowOrgsManagement(true);
-                try {
-                  const { data: members } = await supabase.from('organization_members').select('*, organization:organizations(id, name), user:profiles(id, username, full_name)');
-                  const { data: orgs } = await supabase.from('organizations').select('*');
-                  if (orgs) {
-                    const detailed = orgs.map(org=>{
-                      const orgMembers = (members||[]).filter(m=>m.organization_id===org.id);
-                      return { ...org, members: orgMembers, memberCount: orgMembers.length };
-                    });
-                    setOrgMembersDetailed(detailed);
-                  }
-                } catch (e) {}
-              }} style={{background:`${GOLD}22`, border:`1px solid ${GOLD}`, color:GOLD, borderRadius:9, padding:"6px 10px", fontSize:11, fontWeight:700, display:"flex", alignItems:"center", gap:5}}>
-                <Building2 size={13}/> منظمات ({allOrgs.length})
-              </button>
-              <button className="btn" onClick={()=>setShowUsersManagement(true)} style={{background:`${GOLD}22`, border:`1px solid ${GOLD}`, color:GOLD, borderRadius:9, padding:"6px 10px", fontSize:11, fontWeight:700, display:"flex", alignItems:"center", gap:5}}>
-                <User size={13}/> يوزرز ({allUsers.length})
-              </button>
-              <button className="btn" onClick={()=>setShowProgramsManagement(true)} style={{background:`${TEAL}22`, border:`1px solid ${TEAL}`, color:TEAL, borderRadius:9, padding:"6px 10px", fontSize:11, fontWeight:700, display:"flex", alignItems:"center", gap:5}}>
-                🧩 برامج ({allPrograms.length})
-              </button>
-            </div>
-          )}
-        </div>
+        {isSuperAdmin && (
+          <div style={{display:"flex", alignItems:"center", gap:8}}>
+            {allOrgs.length>0 && (
+              <div style={{display:"flex", alignItems:"center", gap:8, background:CARD_SOFT, borderRadius:9, padding:"6px 10px", border:`1px solid ${LINE}`}}>
+                <Building2 size={14} color={GOLD}/>
+                <select className="field" value={currentOrgId||""} onChange={e=>{
+                  const newId=e.target.value;
+                  setCurrentOrgId(newId);
+                  localStorage.setItem("bousala_org", newId);
+                  const found=allOrgs.find(o=>o.id===newId);
+                  if(found) setOrgName(found.name);
+                  window.location.reload();
+                }} style={{background:"transparent", border:"none", color:PAPER, fontSize:12, fontWeight:700, minWidth:140}}>
+                  {allOrgs.map(o=><option key={o.id} value={o.id} style={{background:CARD}}>{o.name} ({o.id.slice(0,6)})</option>)}
+                </select>
+                <span style={{fontSize:11, color:MUTED}}>{allOrgs.length} orgs</span>
+              </div>
+            )}
+            <button className="btn" onClick={()=>setShowUsersManagement(true)} style={{background:`${GOLD}22`, border:`1px solid ${GOLD}`, color:GOLD, borderRadius:9, padding:"6px 10px", fontSize:12, fontWeight:700, display:"flex", alignItems:"center", gap:6}}>
+              <User size={14}/> إدارة اليوزرز ({allUsers.length})
+            </button>
+          </div>
+        )}
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                     <button
             className="btn"
@@ -2713,311 +2894,9 @@ export default function App() {
         </Modal>
       )}
 
-      {showOrgsManagement && (
-        <Modal title="إدارة المنظمات - الهيكل التنظيمي" onClose={()=>setShowOrgsManagement(false)} dir={dir}>
-          <div style={{display:"flex", flexDirection:"column", gap:14}}>
-            <div style={{background:CARD_SOFT, borderRadius:10, padding:12, border:`1px solid ${LINE}`}}>
-              <div style={{display:"flex", alignItems:"center", gap:8}}>
-                <Building2 size={16} color={GOLD}/>
-                <span style={{fontWeight:800, fontSize:14}}>المنظمات ({orgMembersDetailed.length}) - الهيكل</span>
-                <button className="btn" onClick={async()=>{
-                  try {
-                    const { data: members } = await supabase.from('organization_members').select('*, organization:organizations(id, name), user:profiles(id, username, full_name)');
-                    const { data: orgs } = await supabase.from('organizations').select('*');
-                    if (orgs) {
-                      const detailed = orgs.map(org=>{
-                        const orgMembers = (members||[]).filter(m=>m.organization_id===org.id);
-                        return { ...org, members: orgMembers, memberCount: orgMembers.length };
-                      });
-                      setOrgMembersDetailed(detailed);
-                      showToast('تم التحديث');
-                    }
-                  } catch (e) { showToast(e.message); }
-                }} style={{marginInlineStart:"auto", background:CARD, border:`1px solid ${LINE}`, color:PAPER, borderRadius:6, padding:"4px 8px", fontSize:10}}>🔄 تحديث</button>
-              </div>
-              <div style={{fontSize:11, color:MUTED, marginTop:4}}>كل منظمة = حساب مالي منفصل - تحتها حسابات رئيسية (Owner/Admin) وتحتها حسابات عادية (Member) - أفضل هيكل: يوزر واحد مالك منظمتين</div>
-            </div>
-            <div style={{display:"grid", gap:12, maxHeight:"65vh", overflowY:"auto"}}>
-              {orgMembersDetailed.map(org=>{
-                const owners = org.members?.filter(m=>m.role==='owner') || [];
-                const admins = org.members?.filter(m=>m.role==='admin') || [];
-                const members = org.members?.filter(m=>!['owner','admin'].includes(m.role)) || [];
-                return (
-                <div key={org.id} className="card" style={{padding:14, border:`1px solid ${GOLD}`, background:CARD_SOFT}}>
-                  <div style={{display:"flex", justifyContent:"space-between", gap:10}}>
-                    <div style={{flex:1}}>
-                      <div style={{display:"flex", alignItems:"center", gap:8}}>
-                        <div style={{width:36, height:36, borderRadius:8, background:`${GOLD}22`, border:`1px solid ${GOLD}`, display:"flex", alignItems:"center", justifyContent:"center"}}>
-                          <Building2 size={18} color={GOLD}/>
-                        </div>
-                        <div>
-                          <div style={{fontWeight:800, fontSize:14, display:"flex", alignItems:"center", gap:6, flexWrap:"wrap"}}>
-                            {org.name}
-                            <span style={{fontSize:10, color:MUTED, background:CARD, padding:"2px 6px", borderRadius:4}}>{org.id.slice(0,6)}</span>
-                            <span style={{fontSize:10, background:`${TEAL}22`, color:TEAL, padding:"2px 6px", borderRadius:999}}>{org.memberCount} يوزر</span>
-                          </div>
-                          <div style={{fontSize:11, color:MUTED}}>أنشئت: {org.created_at ? new Date(org.created_at).toLocaleDateString('ar-JO') : '—'}</div>
-                        </div>
-                      </div>
-                      <div style={{marginTop:14, display:"grid", gap:10}}>
-                        {owners.length>0 && (
-                          <div>
-                            <div style={{fontSize:11, fontWeight:800, color:GOLD}}><Shield size={12}/> 👑 المالكين ({owners.length}) - حسابات رئيسية</div>
-                            <div style={{display:"grid", gap:6, marginTop:6}}>
-                              {owners.map(m=>(
-                                <div key={m.user_id} style={{display:"flex", alignItems:"center", justifyContent:"space-between", background:`${GOLD}12`, border:`1px solid ${GOLD}33`, padding:"8px 10px", borderRadius:8}}>
-                                  <div style={{display:"flex", alignItems:"center", gap:8}}>
-                                    <div style={{width:28, height:28, borderRadius:"50%", background:GOLD, display:"flex", alignItems:"center", justifyContent:"center", color:INK, fontWeight:800, fontSize:11}}>{(m.user?.full_name||m.user?.username||'U').slice(0,2).toUpperCase()}</div>
-                                    <div>
-                                      <div style={{fontSize:12, fontWeight:700}}>{m.user?.full_name||m.user?.username} <span style={{fontSize:9, background:GOLD, color:INK, padding:"2px 5px", borderRadius:999}}>OWNER</span></div>
-                                      <div style={{fontSize:10, color:MUTED}}>{m.user?.username}</div>
-                                    </div>
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-                        {admins.length>0 && (
-                          <div>
-                            <div style={{fontSize:11, fontWeight:800, color:TEAL}}><User size={12}/> 🛡️ أدمنز ({admins.length}) - حسابات رئيسية</div>
-                            <div style={{display:"grid", gap:6, marginTop:6}}>
-                              {admins.map(m=>(
-                                <div key={m.user_id} style={{display:"flex", alignItems:"center", justifyContent:"space-between", background:`${TEAL}0A`, border:`1px solid ${TEAL}33`, padding:"8px 10px", borderRadius:8}}>
-                                  <div style={{display:"flex", alignItems:"center", gap:8}}>
-                                    <div style={{width:28, height:28, borderRadius:"50%", background:TEAL, display:"flex", alignItems:"center", justifyContent:"center", color:INK, fontWeight:700, fontSize:11}}>{(m.user?.full_name||m.user?.username||'A').slice(0,2).toUpperCase()}</div>
-                                    <div>
-                                      <div style={{fontSize:12, fontWeight:700}}>{m.user?.full_name||m.user?.username} <span style={{fontSize:9, background:TEAL, color:INK, padding:"2px 5px", borderRadius:999}}>ADMIN</span></div>
-                                      <div style={{fontSize:10, color:MUTED}}>{m.user?.username}</div>
-                                    </div>
-                                  </div>
-                                  <button className="btn" onClick={async()=>{
-                                    const { error } = await supabase.from('organization_members').delete().eq('organization_id', org.id).eq('user_id', m.user_id);
-                                    if (!error) {
-                                      setOrgMembersDetailed(prev=>prev.map(o=>o.id===org.id ? {...o, members: o.members.filter(x=>x.user_id!==m.user_id), memberCount: o.memberCount-1} : o));
-                                    }
-                                  }} style={{background:`${RED}15`, border:`1px solid ${RED}33`, color:RED, borderRadius:6, padding:"3px 6px", fontSize:9}}>إزالة</button>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-                        <div>
-                          <div style={{fontSize:11, fontWeight:800, color:PAPER}}><Users size={12}/> 👥 يوزرز/حسابات ({members.length})</div>
-                          {members.length>0 && (
-                            <div style={{display:"grid", gap:6, marginTop:6}}>
-                              {members.map(m=>(
-                                <div key={m.user_id} style={{display:"flex", alignItems:"center", justifyContent:"space-between", background:CARD, border:`1px solid ${LINE}`, padding:"8px 10px", borderRadius:8}}>
-                                  <div style={{display:"flex", alignItems:"center", gap:8}}>
-                                    <div style={{width:28, height:28, borderRadius:"50%", background:LINE, display:"flex", alignItems:"center", justifyContent:"center", color:PAPER, fontWeight:700, fontSize:11}}>{(m.user?.full_name||m.user?.username||'U').slice(0,2).toUpperCase()}</div>
-                                    <div>
-                                      <div style={{fontSize:12, fontWeight:700}}>{m.user?.full_name||m.user?.username} <span style={{fontSize:9, background:LINE, color:MUTED, padding:"2px 5px", borderRadius:999}}>{m.role||'member'}</span></div>
-                                      <div style={{fontSize:10, color:MUTED}}>{m.user?.username}</div>
-                                    </div>
-                                  </div>
-                                  <div style={{display:"flex", gap:4}}>
-                                    <button className="btn" onClick={async()=>{
-                                      const newRole = m.role==='member' ? 'admin' : 'member';
-                                      const { error } = await supabase.from('organization_members').update({ role: newRole }).eq('organization_id', org.id).eq('user_id', m.user_id);
-                                      if (!error) {
-                                        setOrgMembersDetailed(prev=>prev.map(o=>o.id===org.id ? {...o, members: o.members.map(x=>x.user_id===m.user_id ? {...x, role: newRole} : x)} : o));
-                                      }
-                                    }} style={{background:CARD_SOFT, border:`1px solid ${LINE}`, color:PAPER, borderRadius:6, padding:"3px 6px", fontSize:9}}>{m.role==='member' ? 'جعله أدمن' : 'جعله عضو'}</button>
-                                    <button className="btn" onClick={async()=>{
-                                      const { error } = await supabase.from('organization_members').delete().eq('organization_id', org.id).eq('user_id', m.user_id);
-                                      if (!error) {
-                                        setOrgMembersDetailed(prev=>prev.map(o=>o.id===org.id ? {...o, members: o.members.filter(x=>x.user_id!==m.user_id), memberCount: o.memberCount-1} : o));
-                                      }
-                                    }} style={{background:`${RED}15`, border:`1px solid ${RED}33`, color:RED, borderRadius:6, padding:"3px 6px", fontSize:9}}>إزالة</button>
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )})}
-            </div>
-            <div style={{background:`${GOLD}12`, borderRadius:8, padding:10, border:`1px solid ${GOLD}33`}}>
-              <div style={{fontSize:11, color:GOLD, fontWeight:700}}>💡 أفضل هيكل (افضل):</div>
-              <div style={{fontSize:11, color:MUTED, marginTop:4}}>
-                • يوزر واحد (alim.sadi) مالك منظمتين<br/>
-                • حسابي الشخصي = دفتر شخصي - Owner: alim.sadi<br/>
-                • عائلة علي السعدي = دفتر العيلة - Owner: alim.sadi<br/>
-                • احذف اليوزر المكرر alim → يصير عندك يوزر واحد، منظمتين - هذا الصح!
-              </div>
-            </div>
-          </div>
-        </Modal>
-      )}
-
-      {showProgramsManagement && (
-        <Modal title="إدارة البرامج / الموديولز - Super Admin" onClose={()=>setShowProgramsManagement(false)} dir={dir}>
-          <div style={{display:"flex", flexDirection:"column", gap:14}}>
-            <div style={{background:CARD_SOFT, borderRadius:10, padding:12, border:`1px solid ${LINE}`}}>
-              <div style={{display:"flex", alignItems:"center", gap:8}}>
-                <span style={{fontSize:16}}>🧩</span>
-                <span style={{fontWeight:800, fontSize:14}}>البرامج ({allPrograms.length}) - افضل</span>
-                <button className="btn" onClick={async()=>{
-                  const { data } = await supabase.from('programs').select('*').order('sort_order');
-                  if (data) setAllPrograms(data);
-                }} style={{marginInlineStart:"auto", background:CARD, border:`1px solid ${LINE}`, color:PAPER, borderRadius:6, padding:"4px 8px", fontSize:10}}>🔄 تحديث</button>
-              </div>
-              <div style={{fontSize:11, color:MUTED}}>أنشئ، عدّل، فعّل/عطّل، واعطِ صلاحيات - افضل نظام موديولز</div>
-            </div>
-            <div className="card" style={{padding:14, border:`2px solid ${programForm.editingId ? TEAL : GOLD}`}}>
-              <div style={{fontWeight:800, fontSize:12, marginBottom:10, display:"flex", gap:8}}>
-                {programForm.editingId ? '✏️ تعديل' : '➕ إنشاء برنامج جديد'}
-                {programForm.editingId && <button className="btn" onClick={()=>setProgramForm({ slug: '', name: '', description: '', icon: '📦', color: '#C9A24B', route: '', sort_order: 0, editingId: null })} style={{marginInlineStart:"auto", background:LINE, color:PAPER, borderRadius:6, padding:"4px 8px", fontSize:10}}>إلغاء</button>}
-              </div>
-              <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:8}}>
-                <div><Label>Slug</Label><input className="field" value={programForm.slug} disabled={!!programForm.editingId} onChange={e=>setProgramForm({...programForm, slug: e.target.value.toLowerCase().replace(/\s+/g, '_')})} placeholder="inventory"/></div>
-                <div><Label>الأيقونة</Label><input className="field" value={programForm.icon} onChange={e=>setProgramForm({...programForm, icon: e.target.value})} placeholder="📦"/></div>
-              </div>
-              <div style={{display:"grid", gap:8, marginTop:8}}>
-                <div><Label>اسم البرنامج</Label><input className="field" value={programForm.name} onChange={e=>setProgramForm({...programForm, name: e.target.value})} placeholder="المخزون"/></div>
-                <div><Label>الوصف</Label><input className="field" value={programForm.description} onChange={e=>setProgramForm({...programForm, description: e.target.value})} placeholder="إدارة المخزون"/></div>
-              </div>
-              <button className="btn" onClick={async()=>{
-                if (!programForm.slug || !programForm.name) return showToast('أدخل slug واسم');
-                try {
-                  if (programForm.editingId) {
-                    const { error } = await supabase.from('programs').update({ name: programForm.name, description: programForm.description, icon: programForm.icon, color: programForm.color, route: programForm.route, sort_order: programForm.sort_order }).eq('id', programForm.editingId);
-                    if (error) throw error;
-                    showToast('✅ تم التحديث');
-                  } else {
-                    const { error } = await supabase.rpc('admin_create_program', { prog_slug: programForm.slug, prog_name: programForm.name, prog_description: programForm.description, prog_icon: programForm.icon, prog_color: programForm.color, prog_route: programForm.route, prog_sort_order: programForm.sort_order });
-                    if (error) throw error;
-                    showToast('✅ تم الإنشاء');
-                  }
-                  const { data: allProgs } = await supabase.from('programs').select('*').order('sort_order');
-                  if (allProgs) setAllPrograms(allProgs);
-                  setProgramForm({ slug: '', name: '', description: '', icon: '📦', color: '#C9A24B', route: '', sort_order: 0, editingId: null });
-                } catch (err) { showToast('❌ '+err.message); }
-              }} style={{marginTop:10, background: programForm.editingId ? TEAL : GOLD, color: INK, borderRadius:8, padding:"8px 14px", fontWeight:700}}>{programForm.editingId ? '💾 حفظ' : '➕ إنشاء'}</button>
-            </div>
-            <div style={{display:"grid", gap:12, maxHeight:"60vh", overflowY:"auto"}}>
-              {allPrograms.map(p=>{
-                const assignments = programAssignments[p.id] || { orgs: [], users: [] };
-                return (
-                <div key={p.id} className="card" style={{padding:14, border:`1px solid ${p.is_active ? TEAL : LINE}`, background: p.is_active ? `${TEAL}0A` : CARD_SOFT}}>
-                  <div style={{display:"flex", justifyContent:"space-between", gap:10, flexWrap:"wrap"}}>
-                    <div style={{display:"flex", alignItems:"center", gap:10, flex:1}}>
-                      <div style={{fontSize:28}}>{p.icon}</div>
-                      <div style={{flex:1}}>
-                        <div style={{fontWeight:800, fontSize:13}}>{p.name} ({p.slug}) {p.is_active ? '✅' : '❌'}</div>
-                        <div style={{fontSize:11, color:MUTED}}>{p.description}</div>
-                        <div style={{fontSize:10, color:MUTED}}>🏢 {assignments.orgs.length} · 👤 {assignments.users.length}</div>
-                      </div>
-                    </div>
-                    <div style={{display:"flex", flexDirection:"column", gap:5, minWidth:110}}>
-                      <button className="btn" onClick={async()=>{
-                        const { error } = await supabase.from('programs').update({ is_active: !p.is_active }).eq('id', p.id);
-                        if (!error) setAllPrograms(prev=>prev.map(x=>x.id===p.id ? {...x, is_active: !x.is_active} : x));
-                      }} style={{background: p.is_active ? `${RED}22` : `${TEAL}22`, border:`1px solid ${p.is_active ? RED : TEAL}`, color: p.is_active ? RED : TEAL, borderRadius:8, padding:"5px 8px", fontSize:11}}>{p.is_active ? 'تعطيل' : 'تفعيل'}</button>
-                      <button className="btn" onClick={()=>setProgramForm({ slug: p.slug, name: p.name, description: p.description||'', icon: p.icon||'📦', color: p.color||'#C9A24B', route: p.route||'', sort_order: p.sort_order||0, editingId: p.id })} style={{background:CARD, border:`1px solid ${GOLD}`, color:GOLD, borderRadius:8, padding:"5px 8px", fontSize:11}}><Pencil size={12}/> تعديل</button>
-                      <button className="btn" onClick={()=>setAllPrograms(prev=>prev.map(x=>x.id===p.id ? {...x, _expanded: !x._expanded} : x))} style={{background:CARD, border:`1px solid ${LINE}`, color:PAPER, borderRadius:8, padding:"5px 8px", fontSize:10}}>{p._expanded ? '▲' : '▼ صلاحيات'}</button>
-                    </div>
-                  </div>
-                  {p._expanded && (
-                    <div style={{marginTop:12, display:"grid", gap:10, background:INK, padding:10, borderRadius:8}}>
-                      <div>
-                        <div style={{fontSize:11, fontWeight:700, color:GOLD, marginBottom:6}}>🏢 تفعيل للمنظمات:</div>
-                        <div style={{display:"flex", gap:6, flexWrap:"wrap"}}>
-                          {allOrgs.map(org=>{
-                            const isAssigned = assignments.orgs.some(s=>s.organization_id===org.id && s.is_active);
-                            return (
-                              <button key={org.id} className="btn" onClick={async()=>{
-                                const { error } = await supabase.rpc('admin_assign_program_to_org', { target_org_id: org.id, target_program_slug: p.slug, is_active: !isAssigned });
-                                if (!error) {
-                                  const { data: subs } = await supabase.from('organization_subscriptions').select('*, organization:organizations(name)').eq('program_id', p.id);
-                                  setProgramAssignments(prev=>({...prev, [p.id]: { ...prev[p.id], orgs: subs||[] }}));
-                                }
-                              }} style={{background: isAssigned ? `${TEAL}22` : `${GOLD}15`, border:`1px solid ${isAssigned ? TEAL : `${GOLD}33`}`, color: isAssigned ? TEAL : GOLD, borderRadius:6, padding:"4px 8px", fontSize:10}}>
-                                {isAssigned ? '✅' : '➕'} {org.name}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-                      <div>
-                        <div style={{fontSize:11, fontWeight:700, color:GOLD, marginBottom:6}}>👤 تفعيل ليوزرز:</div>
-                        <div style={{display:"grid", gap:6}}>
-                          {allUsers.slice(0,10).map(u=>{
-                            const ua = assignments.users.find(x=>x.user_id===u.id);
-                            return (
-                              <div key={u.id} style={{display:"flex", alignItems:"center", justifyContent:"space-between", gap:6, background:CARD_SOFT, padding:"6px 8px", borderRadius:6}}>
-                                <div style={{fontSize:10}}><span style={{direction:"ltr"}}>{u.email||u.username}</span> {ua?.is_allowed && <span style={{color:TEAL}}>✅</span>}</div>
-                                <button className="btn" onClick={async()=>{
-                                  const orgId = allOrgs[0]?.id;
-                                  const { error } = await supabase.rpc('admin_assign_program_to_user', { target_user_id: u.id, target_org_id: orgId, target_program_slug: p.slug, allowed: !ua?.is_allowed, user_role: ua?.role||'viewer' });
-                                  if (!error) {
-                                    const { data: uas } = await supabase.from('user_program_access').select('*').eq('program_id', p.id);
-                                    setProgramAssignments(prev=>({...prev, [p.id]: { ...prev[p.id], users: uas||[] }}));
-                                  }
-                                }} style={{background: ua?.is_allowed ? `${RED}22` : `${TEAL}22`, border:`1px solid ${ua?.is_allowed ? RED : TEAL}`, color: ua?.is_allowed ? RED : TEAL, borderRadius:6, padding:"2px 6px", fontSize:9}}>{ua?.is_allowed ? 'إلغاء' : 'تفعيل'}</button>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )})}
-            </div>
-          </div>
-        </Modal>
-      )}
-
-      {availablePrograms.length > 1 && (
-        <div className="card" style={{ maxWidth: 980, margin: "0 auto 18px", padding: 16, borderColor: TEAL }}>
-          <div style={{display:"flex", alignItems:"center", gap:8, marginBottom:12}}>
-            <span style={{fontSize:16}}>🧩</span>
-            <span style={{fontWeight:800, fontSize:14}}>برامجي ({availablePrograms.length}) - افضل</span>
-          </div>
-          <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(140px, 1fr))", gap:10}}>
-            {availablePrograms.map(p=>(
-              <button
-                key={p.slug||p.program_id}
-                onClick={()=>{
-                  setSelectedProgram(p.slug);
-                  localStorage.setItem('bousala_program', p.slug);
-                }}
-                className="card"
-                style={{
-                  padding:14,
-                  border:`2px solid ${selectedProgram===p.slug ? (p.color||GOLD) : LINE}`,
-                  background: selectedProgram===p.slug ? `${p.color||GOLD}18` : CARD_SOFT,
-                  borderRadius:12,
-                  display:"flex",
-                  flexDirection:"column",
-                  alignItems:"center",
-                  gap:8,
-                  cursor:"pointer"
-                }}
-              >
-                <div style={{fontSize:28}}>{p.icon||'📦'}</div>
-                <div style={{fontWeight:800, fontSize:12, textAlign:"center"}}>{p.program_name||p.name}</div>
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {selectedProgram !== 'bousala' && availablePrograms.length>0 && (
-        <div className="card" style={{ maxWidth: 980, margin: "0 auto 18px", padding: 30, textAlign:"center", borderColor: GOLD }}>
-          <div style={{fontSize:48}}>{availablePrograms.find(p=>p.slug===selectedProgram)?.icon||'📦'}</div>
-          <div style={{fontSize:20, fontWeight:900, marginTop:10}}>{availablePrograms.find(p=>p.slug===selectedProgram)?.program_name||selectedProgram}</div>
-          <div style={{fontSize:13, color:MUTED, marginTop:8}}>هذا الموديول قيد التطوير</div>
-          <button className="btn" onClick={()=>{setSelectedProgram('bousala'); localStorage.setItem('bousala_program','bousala');}} style={{marginTop:16, background:GOLD, color:INK, borderRadius:8, padding:"8px 16px", fontWeight:700}}>العودة لبوصلة 🧭</button>
-        </div>
-      )}
-
       {/* Month selector */}
+{/* Month selector */}
+
       <div className="card" style={{ maxWidth: 980, margin: "0 auto 18px", padding: 14, borderColor: GOLD }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
           <div>
