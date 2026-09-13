@@ -1991,6 +1991,8 @@ export default function App() {
     }).eq('id', editingYear.yearId);
     if (error) return showToast(error.message);
     // Regenerate installments: delete old and insert new, preserving paid status
+    // FIXED: use real DB IDs from insertedData, not random local IDs
+    var newDbInstallments = [];
     const currentYear = children.find(c=>c.id===editingYear.childId)?.years.find(y=>y.id===editingYear.yearId);
     if (currentYear) {
       const updated = {
@@ -2008,7 +2010,7 @@ export default function App() {
         const old = currentYear.installments.find((oi) => oi.month === ni.month);
         return old ? { ...ni, paid: old.paid, paidAmount: installmentPaidAmount(old), paymentDate: old.paymentDate || null } : ni;
       });
-      // Delete old installments from DB - FIXED: use year_id not year_id
+      // Delete old installments from DB - FIXED: use year_id
       const { error: delErr } = await supabase.from('installments').delete().eq('year_id', editingYear.yearId);
       if (delErr) return showToast('خطأ حذف الأقساط القديمة: ' + delErr.message);
       // Insert new ones - FIXED: use year_id and same columns as addChildYear
@@ -2024,6 +2026,17 @@ export default function App() {
       }));
       const { data: insertedData, error: insErr } = await supabase.from('installments').insert(toInsert).select();
       if (insErr) return showToast('خطأ إنشاء الأقساط الجديدة: ' + insErr.message);
+      // نستخدم الصفوف الحقيقية اللي رجعتها قاعدة البيانات (فيها الـid الصحيح) بدل توليد ids جديدة محلياً
+      newDbInstallments = (insertedData || []).map(ins => ({
+        id: ins.id,
+        month: ins.month,
+        amount: Number(ins.amount),
+        paid: ins.paid,
+        paidAmount: Number(ins.paid_amount || 0),
+        paymentDate: ins.payment_date,
+        isDownPayment: ins.is_down_payment,
+        locked: ins.locked || false,
+      }));
     }
     setChildren((prev) =>
       prev.map((c) => {
@@ -2042,11 +2055,10 @@ export default function App() {
               installmentsCount: parseInt(editYearForm.installmentsCount) || 1,
               startDate: editYearForm.startDate,
             };
-            const freshInstallments = generateInstallments(updated);
-            updated.installments = freshInstallments.map((ni) => {
-              const old = y.installments.find((oi) => oi.month === ni.month);
-              return old ? { ...ni, paid: old.paid, paidAmount: installmentPaidAmount(old), paymentDate: old.paymentDate || null } : ni;
-            });
+            // FIXED: استخدم نفس الصفوف اللي رجعت من DB بدل توليد ids عشوائية جديدة
+            updated.installments = newDbInstallments && newDbInstallments.length > 0
+              ? newDbInstallments
+              : y.installments;
             return updated;
           }),
         };
