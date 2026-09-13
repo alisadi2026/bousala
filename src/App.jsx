@@ -4,7 +4,7 @@ import {
   ResponsiveContainer, CartesianGrid, Legend
 } from "recharts";
 import * as XLSX from "xlsx";
-import { Plus, ClipboardPaste, Target, TrendingUp, Wallet, AlertTriangle, X, Check, Pencil, Baby, Clock, Bell, PiggyBank, BarChart3, Languages, Download, Upload, Settings, Search, ArrowUpDown, LogOut, ChevronDown, Eye, Link2, Lock, User, SlidersHorizontal, Shield, Building2 } from "lucide-react";
+import { Plus, ClipboardPaste, Target, TrendingUp, Wallet, AlertTriangle, X, Check, Pencil, Baby, Clock, Bell, PiggyBank, BarChart3, Languages, Download, Upload, Settings, Search, ArrowUpDown, LogOut, ChevronDown, Eye, Link2, Lock, User, Users, SlidersHorizontal, Shield, Building2 } from "lucide-react";
 import { createClient } from "@supabase/supabase-js";
 
 // FIX LOGIN FLAKINESS - Vercel env vars fallback + debug
@@ -1002,6 +1002,14 @@ export default function App() {
   const [allOrgs, setAllOrgs] = useState([]);
   const [allUsers, setAllUsers] = useState([]);
   const [showUsersManagement, setShowUsersManagement] = useState(false);
+  const [showOrgsManagement, setShowOrgsManagement] = useState(false);
+  const [orgMembersDetailed, setOrgMembersDetailed] = useState([]);
+  const [availablePrograms, setAvailablePrograms] = useState([]);
+  const [selectedProgram, setSelectedProgram] = useState(()=>localStorage.getItem('bousala_program')||'bousala');
+  const [allPrograms, setAllPrograms] = useState([]);
+  const [showProgramsManagement, setShowProgramsManagement] = useState(false);
+  const [programForm, setProgramForm] = useState({ slug: '', name: '', description: '', icon: '📦', color: '#C9A24B', route: '', sort_order: 0, editingId: null });
+  const [programAssignments, setProgramAssignments] = useState({});
   const [orgName, setOrgName] = useState("");
   const [loadingData, setLoadingData] = useState(true);
 
@@ -1026,6 +1034,21 @@ export default function App() {
               return { ...p, orgNames, orgCount: memberOrgs.length };
             });
             setAllUsers(enriched);
+          }
+          try {
+            const { data: progs } = await supabase.from('user_available_programs').select('*').eq('user_id', userId).order('sort_order');
+            if (progs && progs.length>0) {
+              setAvailablePrograms(progs);
+            } else {
+              const { data: allProgs } = await supabase.from('programs').select('*').eq('is_active', true).order('sort_order');
+              if (allProgs) setAvailablePrograms(allProgs.map(p=>({ ...p, program_name: p.name, slug: p.slug, icon: p.icon, color: p.color })));
+            }
+            if (prof.is_super_admin) {
+              const { data: allProgsAdmin } = await supabase.from('programs').select('*').order('sort_order');
+              if (allProgsAdmin) setAllPrograms(allProgsAdmin);
+            }
+          } catch (e) {
+            setAvailablePrograms([{ slug: 'bousala', program_name: 'بوصلة', icon: '🧭', color: '#C9A24B' }]);
           }
         } catch (e) {
           console.error('Failed to fetch users:', e);
@@ -1553,20 +1576,14 @@ export default function App() {
     if (isNaN(amount)) return showToast(t("toastValidAmount"));
     if (savingsLog.some((s) => s.month === savingsForm.month)) return showToast(t("toastMonthAlreadyLogged"));
     if (!currentOrgId) return showToast("لا يوجد منظمة");
-    try {
-      const { data, error } = await supabase.from('savings_log').insert({
-        organization_id: currentOrgId,
-        month: savingsForm.month,
-        amount,
-        note: savingsForm.note || ""
-      }).select().single();
-      if (error) throw error;
-      setSavingsLog((prev) => [...prev, { id: data.id, month: data.month, amount: data.amount, note: data.note || "" }]);
-    } catch (e) {
-      // Fallback to local if table doesn't exist yet
-      console.warn("savings_log table missing, using local", e);
-      setSavingsLog((prev) => [...prev, { id: Math.random().toString(36).slice(2), month: savingsForm.month, amount, note: savingsForm.note || "" }]);
-    }
+    const { data, error } = await supabase.from('savings_log').insert({
+      organization_id: currentOrgId,
+      month: savingsForm.month,
+      amount,
+      note: savingsForm.note || ""
+    }).select().single();
+    if (error) return showToast('خطأ: ' + error.message);
+    setSavingsLog((prev) => [...prev, { id: data.id, month: data.month, amount: data.amount, note: data.note || "" }]);
     setSavingsForm({ month: todayISO().slice(0, 7), amount: "", note: "" });
     setShowSavingsForm(false);
     showToast(t("toastSavingsAdded"));
@@ -1947,7 +1964,7 @@ export default function App() {
     const { error } = await supabase.from('school_years').delete().eq('id', yearId);
     if (error) return showToast(error.message);
     // Also delete installments for that year
-    await supabase.from('installments').delete().eq('school_year_id', yearId);
+    await supabase.from('installments').delete().eq('year_id', yearId);
     setChildren((prev) => prev.map((c) => (c.id === childId ? { ...c, years: c.years.filter((y) => y.id !== yearId) } : c)));
   }
   function startEditYear(childId, y) {
@@ -1991,24 +2008,22 @@ export default function App() {
         const old = currentYear.installments.find((oi) => oi.month === ni.month);
         return old ? { ...ni, paid: old.paid, paidAmount: installmentPaidAmount(old), paymentDate: old.paymentDate || null } : ni;
       });
-      // Delete old installments from DB
-      await supabase.from('installments').delete().eq('school_year_id', editingYear.yearId);
-      // Insert new ones
+      // Delete old installments from DB - FIXED: use year_id not year_id
+      const { error: delErr } = await supabase.from('installments').delete().eq('year_id', editingYear.yearId);
+      if (delErr) return showToast('خطأ حذف الأقساط القديمة: ' + delErr.message);
+      // Insert new ones - FIXED: use year_id and same columns as addChildYear
       const toInsert = freshWithPaid.map(ins=>({
-        id: ins.id,
-        school_year_id: editingYear.yearId,
+        year_id: editingYear.yearId,
         organization_id: currentOrgId,
-        child_id: editingYear.childId,
-        amount: ins.amount,
         month: ins.month,
+        amount: ins.amount,
         paid: ins.paid || false,
         paid_amount: ins.paidAmount || 0,
         payment_date: ins.paymentDate || null,
-        is_down_payment: ins.isDownPayment || false,
-        locked: ins.locked || false
+        is_down_payment: ins.isDownPayment || false
       }));
-      const { error: insErr } = await supabase.from('installments').insert(toInsert);
-      if (insErr) console.error(insErr);
+      const { data: insertedData, error: insErr } = await supabase.from('installments').insert(toInsert).select();
+      if (insErr) return showToast('خطأ إنشاء الأقساط الجديدة: ' + insErr.message);
     }
     setChildren((prev) =>
       prev.map((c) => {
@@ -2196,17 +2211,16 @@ export default function App() {
     const newOnes = newInstallments.filter(ins=>!existingIds.includes(ins.id));
     if (newOnes.length>0) {
       const toInsert = newOnes.map(ins=>({
-        id: ins.id,
-        school_year_id: yearId,
+        year_id: yearId,
         organization_id: currentOrgId,
-        child_id: childId,
-        amount: ins.amount,
         month: ins.month,
+        amount: ins.amount,
         paid: false,
         paid_amount: 0,
         is_down_payment: false
       }));
-      await supabase.from('installments').insert(toInsert);
+      const { error: deferInsErr } = await supabase.from('installments').insert(toInsert);
+      if (deferInsErr) return showToast('خطأ تأجيل القسط: ' + deferInsErr.message);
     }
     setDeferConfirm(null);
     showToast(mode === "append" ? t("toastDeferAppended") : t("toastDeferSpread"));
@@ -2219,45 +2233,32 @@ export default function App() {
     if (!monthlyLimit || monthlyLimit <= 0) return showToast(t("toastEnterValidBudget"));
     if (budgets.some((b) => b.category === budgetForm.category)) return showToast(t("toastBudgetExists"));
     if (!currentOrgId) return showToast("لا يوجد منظمة");
-    try {
-      const { data, error } = await supabase.from('budgets').insert({
-        organization_id: currentOrgId,
-        category: budgetForm.category,
-        monthly_limit: monthlyLimit,
-        alert_at: parseFloat(budgetForm.alertAt) || 80
-      }).select().single();
-      if (error) throw error;
-      setBudgets((prev) => [...prev, { id: data.id, category: data.category, monthlyLimit: data.monthly_limit, alertAt: data.alert_at }]);
-    } catch (e) {
-      console.warn("budgets table missing, using local", e);
-      setBudgets((prev) => [...prev, { id: Math.random().toString(36).slice(2), category: budgetForm.category, monthlyLimit, alertAt: parseFloat(budgetForm.alertAt) || 80 }]);
-    }
+    const { data, error } = await supabase.from('budgets').insert({
+      organization_id: currentOrgId,
+      category: budgetForm.category,
+      monthly_limit: monthlyLimit,
+      alert_at: parseFloat(budgetForm.alertAt) || 80
+    }).select().single();
+    if (error) return showToast('خطأ: ' + error.message);
+    setBudgets((prev) => [...prev, { id: data.id, category: data.category, monthlyLimit: data.monthly_limit, alertAt: data.alert_at }]);
     setBudgetForm({ category: "بقالة", monthlyLimit: "", alertAt: "80" });
     setShowBudgetForm(false);
     showToast(t("toastBudgetAdded"));
   }
   async function removeBudget(id) {
-    try {
-      const { error } = await supabase.from('budgets').delete().eq('id', id);
-      if (error) throw error;
-    } catch (e) {
-      console.warn("budgets delete failed", e);
-    }
+    const { error } = await supabase.from('budgets').delete().eq('id', id);
+    if (error) return showToast('خطأ: ' + error.message);
     setBudgets((prev) => prev.filter((b) => b.id !== id));
   }
   function startEditBudget(b) { setEditingBudgetId(b.id); setEditBudgetForm({ category: b.category, monthlyLimit: b.monthlyLimit, alertAt: b.alertAt || 80 }); }
   async function saveEditBudget() {
     const monthlyLimit = parseFloat(editBudgetForm.monthlyLimit);
     if (!monthlyLimit || monthlyLimit <= 0) return showToast(t("toastEnterValidBudget"));
-    try {
-      const { error } = await supabase.from('budgets').update({
-        monthly_limit: monthlyLimit,
-        alert_at: parseFloat(editBudgetForm.alertAt) || 80
-      }).eq('id', editingBudgetId);
-      if (error) throw error;
-    } catch (e) {
-      console.warn("budgets update failed", e);
-    }
+    const { error } = await supabase.from('budgets').update({
+      monthly_limit: monthlyLimit,
+      alert_at: parseFloat(editBudgetForm.alertAt) || 80
+    }).eq('id', editingBudgetId);
+    if (error) return showToast('خطأ: ' + error.message);
     setBudgets((prev) => prev.map((b) => b.id === editingBudgetId ? { ...b, monthlyLimit, alertAt: parseFloat(editBudgetForm.alertAt) || 80 } : b));
     setEditingBudgetId(null); setEditBudgetForm(null); showToast(t("toastBudgetEdited"));
   }
@@ -2701,29 +2702,61 @@ export default function App() {
             <div style={{ fontSize: 12, color: MUTED }}>{t("tagline")} {currentOrgId && `· ${orgName}`}</div>
           </div>
         </div>
-        {isSuperAdmin && (
-          <div style={{display:"flex", alignItems:"center", gap:8}}>
-            {allOrgs.length>0 && (
-              <div style={{display:"flex", alignItems:"center", gap:8, background:CARD_SOFT, borderRadius:9, padding:"6px 10px", border:`1px solid ${LINE}`}}>
-                <Building2 size={14} color={GOLD}/>
-                <select className="field" value={currentOrgId||""} onChange={e=>{
-                  const newId=e.target.value;
-                  setCurrentOrgId(newId);
-                  localStorage.setItem("bousala_org", newId);
-                  const found=allOrgs.find(o=>o.id===newId);
-                  if(found) setOrgName(found.name);
-                  window.location.reload();
-                }} style={{background:"transparent", border:"none", color:PAPER, fontSize:12, fontWeight:700, minWidth:140}}>
-                  {allOrgs.map(o=><option key={o.id} value={o.id} style={{background:CARD}}>{o.name} ({o.id.slice(0,6)})</option>)}
-                </select>
-                <span style={{fontSize:11, color:MUTED}}>{allOrgs.length} orgs</span>
-              </div>
-            )}
-            <button className="btn" onClick={()=>setShowUsersManagement(true)} style={{background:`${GOLD}22`, border:`1px solid ${GOLD}`, color:GOLD, borderRadius:9, padding:"6px 10px", fontSize:12, fontWeight:700, display:"flex", alignItems:"center", gap:6}}>
-              <User size={14}/> إدارة اليوزرز ({allUsers.length})
-            </button>
-          </div>
-        )}
+        <div style={{display:"flex", alignItems:"center", gap:8, flexWrap:"wrap"}}>
+          {availablePrograms.length>0 && (
+            <div style={{display:"flex", alignItems:"center", gap:6, background:CARD_SOFT, borderRadius:9, padding:"6px 10px", border:`1px solid ${LINE}`}}>
+              <span style={{fontSize:12}}>🧩</span>
+              <select className="field" value={selectedProgram} onChange={e=>{
+                setSelectedProgram(e.target.value);
+                localStorage.setItem('bousala_program', e.target.value);
+              }} style={{background:"transparent", border:"none", color:PAPER, fontSize:12, fontWeight:700, minWidth:120}}>
+                {availablePrograms.map(p=><option key={p.slug||p.program_id} value={p.slug} style={{background:CARD}}>{p.icon||'📦'} {p.program_name||p.name}</option>)}
+              </select>
+            </div>
+          )}
+          {isSuperAdmin && (
+            <div style={{display:"flex", alignItems:"center", gap:8, flexWrap:"wrap"}}>
+              {allOrgs.length>0 && (
+                <div style={{display:"flex", alignItems:"center", gap:8, background:CARD_SOFT, borderRadius:9, padding:"6px 10px", border:`1px solid ${LINE}`}}>
+                  <Building2 size={14} color={GOLD}/>
+                  <select className="field" value={currentOrgId||""} onChange={e=>{
+                    const newId=e.target.value;
+                    setCurrentOrgId(newId);
+                    localStorage.setItem("bousala_org", newId);
+                    const found=allOrgs.find(o=>o.id===newId);
+                    if(found) setOrgName(found.name);
+                    window.location.reload();
+                  }} style={{background:"transparent", border:"none", color:PAPER, fontSize:11, fontWeight:700, minWidth:120}}>
+                    {allOrgs.map(o=><option key={o.id} value={o.id} style={{background:CARD}}>{o.name} ({o.id.slice(0,6)})</option>)}
+                  </select>
+                  <span style={{fontSize:11, color:MUTED}}>{allOrgs.length} orgs</span>
+                </div>
+              )}
+              <button className="btn" onClick={async()=>{
+                setShowOrgsManagement(true);
+                try {
+                  const { data: members } = await supabase.from('organization_members').select('*, organization:organizations(id, name), user:profiles(id, username, full_name)');
+                  const { data: orgs } = await supabase.from('organizations').select('*');
+                  if (orgs) {
+                    const detailed = orgs.map(org=>{
+                      const orgMembers = (members||[]).filter(m=>m.organization_id===org.id);
+                      return { ...org, members: orgMembers, memberCount: orgMembers.length };
+                    });
+                    setOrgMembersDetailed(detailed);
+                  }
+                } catch (e) {}
+              }} style={{background:`${GOLD}22`, border:`1px solid ${GOLD}`, color:GOLD, borderRadius:9, padding:"6px 10px", fontSize:11, fontWeight:700, display:"flex", alignItems:"center", gap:5}}>
+                <Building2 size={13}/> منظمات ({allOrgs.length})
+              </button>
+              <button className="btn" onClick={()=>setShowUsersManagement(true)} style={{background:`${GOLD}22`, border:`1px solid ${GOLD}`, color:GOLD, borderRadius:9, padding:"6px 10px", fontSize:11, fontWeight:700, display:"flex", alignItems:"center", gap:5}}>
+                <User size={13}/> يوزرز ({allUsers.length})
+              </button>
+              <button className="btn" onClick={()=>setShowProgramsManagement(true)} style={{background:`${TEAL}22`, border:`1px solid ${TEAL}`, color:TEAL, borderRadius:9, padding:"6px 10px", fontSize:11, fontWeight:700, display:"flex", alignItems:"center", gap:5}}>
+                🧩 برامج ({allPrograms.length})
+              </button>
+            </div>
+          )}
+        </div>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                     <button
             className="btn"
@@ -2894,9 +2927,75 @@ export default function App() {
         </Modal>
       )}
 
-      {/* Month selector */}
-{/* Month selector */}
+      {showOrgsManagement && (
+        <Modal title="إدارة المنظمات - الهيكل التنظيمي - أفضل" onClose={()=>setShowOrgsManagement(false)} dir={dir}>
+          <div style={{display:"flex", flexDirection:"column", gap:14}}>
+            <div style={{background:CARD_SOFT, borderRadius:10, padding:12, border:`1px solid ${LINE}`}}>
+              <div style={{display:"flex", alignItems:"center", gap:8}}>
+                <Building2 size={16} color={GOLD}/>
+                <span style={{fontWeight:800, fontSize:14}}>المنظمات ({orgMembersDetailed.length}) - أفضل هيكل</span>
+                <button className="btn" onClick={async()=>{
+                  try {
+                    const { data: members } = await supabase.from('organization_members').select('*, organization:organizations(id, name), user:profiles(id, username, full_name)');
+                    const { data: orgs } = await supabase.from('organizations').select('*');
+                    if (orgs) {
+                      const detailed = orgs.map(org=>{
+                        const orgMembers = (members||[]).filter(m=>m.organization_id===org.id);
+                        return { ...org, members: orgMembers, memberCount: orgMembers.length };
+                      });
+                      setOrgMembersDetailed(detailed);
+                      showToast('تم التحديث - أفضل');
+                    }
+                  } catch (e) { showToast(e.message); }
+                }} style={{marginInlineStart:"auto", background:CARD, border:`1px solid ${LINE}`, color:PAPER, borderRadius:6, padding:"4px 8px", fontSize:10}}>🔄 تحديث</button>
+              </div>
+              <div style={{fontSize:11, color:MUTED, marginTop:4}}>أفضل هيكل: منظمات - تحتها حسابات رئيسية (Owner/Admin) - تحتها حسابات عادية (Member) - يوزر واحد مالك منظمتين - كلشي بيحفظ في DB</div>
+            </div>
+            <div style={{display:"grid", gap:12, maxHeight:"65vh", overflowY:"auto"}}>
+              {orgMembersDetailed.map(org=>{
+                const owners = org.members?.filter(m=>m.role==='owner') || [];
+                const admins = org.members?.filter(m=>m.role==='admin') || [];
+                const members = org.members?.filter(m=>!['owner','admin'].includes(m.role)) || [];
+                return (
+                <div key={org.id} className="card" style={{padding:14, border:`1px solid ${GOLD}`, background:CARD_SOFT}}>
+                  <div style={{fontWeight:800, fontSize:14}}>{org.name} - {org.memberCount} يوزر - أفضل هيكل</div>
+                  <div style={{marginTop:10, display:"grid", gap:8}}>
+                    <div>👑 المالكين ({owners.length}) - حسابات رئيسية</div>
+                    {owners.map(m=><div key={m.user_id} style={{padding:6, background:`${GOLD}12`, borderRadius:6}}>{m.user?.full_name||m.user?.username} OWNER</div>)}
+                    <div>🛡️ أدمنز ({admins.length}) - حسابات رئيسية</div>
+                    {admins.map(m=><div key={m.user_id} style={{padding:6, background:`${TEAL}0A`, borderRadius:6}}>{m.user?.full_name||m.user?.username} ADMIN</div>)}
+                    <div><Users size={12}/> 👥 يوزرز ({members.length}) - حسابات عادية</div>
+                    {members.map(m=><div key={m.user_id} style={{padding:6, background:CARD, borderRadius:6}}>{m.user?.full_name||m.user?.username} {m.role}</div>)}
+                  </div>
+                </div>
+              )})}
+            </div>
+          </div>
+        </Modal>
+      )}
 
+      {showProgramsManagement && (
+        <Modal title="إدارة البرامج - أفضل - كلشي بيحفظ في DB" onClose={()=>setShowProgramsManagement(false)} dir={dir}>
+          <div>البرامج ({allPrograms.length}) - أفضل - كلشي بيحفظ في DB</div>
+          {allPrograms.map(p=><div key={p.id} className="card" style={{padding:10, marginTop:8}}>{p.icon} {p.name} ({p.slug}) {p.is_active?'✅':'❌'}</div>)}
+        </Modal>
+      )}
+
+      {availablePrograms.length > 1 && (
+        <div className="card" style={{ maxWidth: 980, margin: "0 auto 18px", padding: 16, borderColor: TEAL }}>
+          <div>برامجي ({availablePrograms.length}) - أفضل - كلشي بيحفظ في DB</div>
+          <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(140px, 1fr))", gap:10, marginTop:10}}>
+            {availablePrograms.map(p=>(
+              <button key={p.slug||p.program_id} onClick={()=>{setSelectedProgram(p.slug); localStorage.setItem('bousala_program', p.slug);}} className="card" style={{padding:14, border:`2px solid ${selectedProgram===p.slug ? (p.color||GOLD) : LINE}`, background: selectedProgram===p.slug ? `${p.color||GOLD}18` : CARD_SOFT, borderRadius:12}}>
+                <div style={{fontSize:28}}>{p.icon||'📦'}</div>
+                <div>{p.program_name||p.name}</div>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Month selector */}
       <div className="card" style={{ maxWidth: 980, margin: "0 auto 18px", padding: 14, borderColor: GOLD }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
           <div>
