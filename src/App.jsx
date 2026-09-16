@@ -1258,6 +1258,8 @@ export default function App() {
   const [loginPassword2, setLoginPassword2] = useState("");
   const [authError, setAuthError] = useState("");
   const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [showBousalaSettings, setShowBousalaSettings] = useState(false);
+  const [showOrgSettings, setShowOrgSettings] = useState(false);
   const [settingsTab, setSettingsTab] = useState("general");
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [showAddEntryModal, setShowAddEntryModal] = useState(false);
@@ -2692,59 +2694,127 @@ export default function App() {
         .tab { padding: 9px 18px; border-radius: 999px; cursor: pointer; font-size: 14px; font-weight: 700; }
       `}</style>
 
-      {/* Header / Signature */}
-      <div style={{ maxWidth: 980, margin: "0 auto 26px", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 14 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <div style={{
-            width: 46, height: 46, borderRadius: "50%", border: `2px solid ${GOLD}`,
-            display: "flex", alignItems: "center", justifyContent: "center", position: "relative",
-            background: "transparent"
-          }}>
+      {/* NEW HEADER - Clean & Organized - بوصلة النظام العام */}
+      <div style={{ maxWidth: 980, margin: "0 auto 16px", display: "flex", flexDirection: "column", gap: 12 }}>
+        
+        {/* Top row - Bousala brand left, actions right */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             <div style={{
-              width: 3, height: 16, background: calc.projectedRemaining >= 0 ? TEAL : RED, borderRadius: 2,
-              transform: `rotate(${Math.max(-70, Math.min(70, (calc.projectedRemaining >= 0 ? 1 : -1) * 45))}deg)`,
-              transformOrigin: "bottom center", position: "relative", top: -4
-            }} />
-          </div>
-          <div>
-            <div style={{ fontWeight: 900, fontSize: 22, letterSpacing: 0.3, display:"flex", alignItems:"center", gap:8 }}>
-              {t("appName")}
-              {isSuperAdmin && <span style={{background:`${GOLD}22`, border:`1px solid ${GOLD}`, color:GOLD, fontSize:10, padding:"2px 6px", borderRadius:999, fontWeight:800}}><Shield size={10} style={{marginInlineEnd:3}}/>Super Admin</span>}
+              width: 44, height: 44, borderRadius: "50%", border: `2px solid ${GOLD}`,
+              display: "flex", alignItems: "center", justifyContent: "center"
+            }}>
+              <div style={{
+                width: 3, height: 15, background: calc.projectedRemaining >= 0 ? TEAL : RED, borderRadius: 2,
+                transform: `rotate(${Math.max(-60, Math.min(60, (calc.projectedRemaining >= 0 ? 1 : -1) * 35))}deg)`,
+                transformOrigin: "bottom center", position: "relative", top: -3
+              }} />
             </div>
-            <div style={{ fontSize: 12, color: MUTED }}>{t("tagline")} {currentOrgId && `· ${orgName}`}</div>
+            <div>
+              <div style={{ fontWeight: 900, fontSize: 20, display:"flex", alignItems:"center", gap:8 }}>
+                {t("appName")}
+                {isSuperAdmin && <span style={{background:`${GOLD}22`, border:`1px solid ${GOLD}`, color:GOLD, fontSize:9, padding:"2px 6px", borderRadius:999, fontWeight:800}}><Shield size={9} style={{marginInlineEnd:3}}/>Super Admin</span>}
+              </div>
+              <div style={{ fontSize: 11, color: MUTED }}>{t("tagline")}</div>
+            </div>
+          </div>
+          
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            {toast && (
+              <div style={{ background: CARD_SOFT, border: `1px solid ${GOLD}`, borderRadius: 8, padding: "6px 10px", fontSize: 12, display: "flex", alignItems: "center", gap: 5 }}>
+                <Check size={12} color={GOLD} /> {toast}
+              </div>
+            )}
+            <button className="btn" onClick={() => setLang((l) => (l === "ar" ? "en" : "ar"))}
+              style={{ background: CARD_SOFT, border: `1px solid ${LINE}`, color: PAPER, borderRadius: 8, padding: "6px 10px", fontSize: 11, fontWeight:700, display:"flex", alignItems:"center", gap:5 }}>
+              <Languages size={12} color={GOLD} /> {t("langToggle")}
+            </button>
+            {/* بوصلة Global Settings - المنظمات واليوزرز والبرامج */}
+            {isSuperAdmin && (
+              <button className="btn" onClick={()=>setShowBousalaSettings(true)}
+                style={{ background: `${GOLD}18`, border:`1px solid ${GOLD}`, color:GOLD, borderRadius:8, padding:"6px 12px", fontSize:11, fontWeight:800, display:"flex", alignItems:"center", gap:5 }}>
+                <Settings size={12}/> إعدادات بوصلة
+              </button>
+            )}
+            <button className="btn" onClick={()=>{
+              setSupabaseUser(null);
+              localStorage.removeItem('bousala_org');
+              supabase.auth.signOut();
+            }} style={{ background: `${RED}15`, border:`1px solid ${RED}33`, color:RED, borderRadius:8, padding:"6px 10px", fontSize:11, fontWeight:700, display:"flex", alignItems:"center", gap:4 }}>
+              <LogOut size={12}/> خروج
+            </button>
           </div>
         </div>
-        <div style={{display:"flex", alignItems:"center", gap:8, flexWrap:"wrap"}}>
-          {availablePrograms.length>0 && (
-            <div style={{display:"flex", alignItems:"center", gap:6, background:CARD_SOFT, borderRadius:9, padding:"6px 10px", border:`1px solid ${LINE}`}}>
-              <span style={{fontSize:12}}>🧩</span>
-              <select className="field" value={selectedProgram} onChange={e=>{
-                setSelectedProgram(e.target.value);
-                localStorage.setItem('bousala_program', e.target.value);
-              }} style={{background:"transparent", border:"none", color:PAPER, fontSize:12, fontWeight:700, minWidth:120}}>
-                {availablePrograms.map(p=><option key={p.slug||p.program_id} value={p.slug} style={{background:CARD}}>{p.icon||'📦'} {p.program_name||p.name}</option>)}
-              </select>
+
+        {/* Middle - Organizations selector centered - المنظمات في وسط الشاشة */}
+        <div style={{ display:"flex", justifyContent:"center" }}>
+          <div className="card" style={{ padding:"10px 16px", display:"flex", alignItems:"center", gap:12, borderColor: allOrgs.length>1 ? GOLD : LINE }}>
+            <Building2 size={16} color={GOLD}/>
+            <span style={{fontSize:12, fontWeight:800, color:MUTED}}>المنظمة:</span>
+            <select className="field" value={currentOrgId||""} onChange={e=>{
+              const newId=e.target.value;
+              setCurrentOrgId(newId);
+              localStorage.setItem("bousala_org", newId);
+              const found=allOrgs.find(o=>o.id===newId);
+              if(found) setOrgName(found.name);
+              window.location.reload();
+            }} style={{background:"transparent", border:"none", color:PAPER, fontSize:13, fontWeight:800, minWidth:180}}>
+              {allOrgs.map(o=><option key={o.id} value={o.id} style={{background:CARD}}>{o.name}</option>)}
+            </select>
+            <span style={{fontSize:10, background:`${GOLD}22`, color:GOLD, padding:"2px 6px", borderRadius:999}}>{allOrgs.length} منظمات</span>
+            <span style={{fontSize:11, color:MUTED}}>· {orgName}</span>
+          </div>
+        </div>
+
+        {/* Programs selector - تحت المنظمات - اختر البرنامج مثل إدارة المصاريف */}
+        <div style={{ display:"flex", justifyContent:"center" }}>
+          <div style={{ display:"flex", alignItems:"center", gap:8, background:CARD_SOFT, borderRadius:999, padding:"6px 8px", border:`1px solid ${LINE}` }}>
+            <span style={{fontSize:11, color:MUTED, padding:"0 6px"}}>البرنامج:</span>
+            {availablePrograms.map(p=>{
+              const isActive = selectedProgram===p.slug;
+              return (
+                <button
+                  key={p.slug||p.program_id}
+                  onClick={()=>{
+                    setSelectedProgram(p.slug);
+                    localStorage.setItem('bousala_program', p.slug);
+                  }}
+                  className="btn"
+                  style={{
+                    background: isActive ? GOLD : "transparent",
+                    color: isActive ? INK : PAPER,
+                    border: `1px solid ${isActive ? GOLD : "transparent"}`,
+                    borderRadius:999,
+                    padding:"6px 12px",
+                    fontSize:12,
+                    fontWeight: isActive ? 800 : 600,
+                    display:"flex", alignItems:"center", gap:5
+                  }}
+                >
+                  <span>{p.icon||'📦'}</span> {p.program_name||p.name}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      
+      {/* Bousala Global Settings - إعدادات بوصلة العامة - المنظمات واليوزرز والبرامج */}
+      {showBousalaSettings && (
+        <Modal title="⚙️ إعدادات بوصلة - النظام العام" onClose={()=>setShowBousalaSettings(false)} dir={dir}>
+          <div style={{display:"flex", flexDirection:"column", gap:16}}>
+            <div style={{background:`${GOLD}0A`, border:`1px solid ${GOLD}33`, borderRadius:10, padding:12}}>
+              <div style={{fontWeight:800, fontSize:13, display:"flex", alignItems:"center", gap:6}}>
+                <Shield size={14} color={GOLD}/> نظام بوصلة - الإدارة العامة
+              </div>
+              <div style={{fontSize:11, color:MUTED, marginTop:4}}>هنا تتحكم بكل المنظمات، المستخدمين، والبرامج (الموديولز) في النظام ككل. هذه الإعدادات خاصة بـ Super Admin.</div>
             </div>
-          )}
-          {isSuperAdmin && (
-            <div style={{display:"flex", alignItems:"center", gap:8, flexWrap:"wrap"}}>
-              {allOrgs.length>0 && (
-                <div style={{display:"flex", alignItems:"center", gap:8, background:CARD_SOFT, borderRadius:9, padding:"6px 10px", border:`1px solid ${LINE}`}}>
-                  <Building2 size={14} color={GOLD}/>
-                  <select className="field" value={currentOrgId||""} onChange={e=>{
-                    const newId=e.target.value;
-                    setCurrentOrgId(newId);
-                    localStorage.setItem("bousala_org", newId);
-                    const found=allOrgs.find(o=>o.id===newId);
-                    if(found) setOrgName(found.name);
-                    window.location.reload();
-                  }} style={{background:"transparent", border:"none", color:PAPER, fontSize:11, fontWeight:700, minWidth:120}}>
-                    {allOrgs.map(o=><option key={o.id} value={o.id} style={{background:CARD}}>{o.name} ({o.id.slice(0,6)})</option>)}
-                  </select>
-                  <span style={{fontSize:11, color:MUTED}}>{allOrgs.length} orgs</span>
-                </div>
-              )}
-              <button className="btn" onClick={async()=>{
+            
+            <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(200px, 1fr))", gap:12}}>
+              {/* Organizations Card */}
+              <button className="card" onClick={async()=>{
+                setShowBousalaSettings(false);
                 setShowOrgsManagement(true);
                 try {
                   const { data: members } = await supabase.from('organization_members').select('*, organization:organizations(id, name), user:profiles(id, username, full_name)');
@@ -2757,35 +2827,59 @@ export default function App() {
                     setOrgMembersDetailed(detailed);
                   }
                 } catch (e) {}
-              }} style={{background:`${GOLD}22`, border:`1px solid ${GOLD}`, color:GOLD, borderRadius:9, padding:"6px 10px", fontSize:11, fontWeight:700, display:"flex", alignItems:"center", gap:5}}>
-                <Building2 size={13}/> منظمات ({allOrgs.length})
+              }} style={{padding:16, border:`1px solid ${GOLD}`, background:CARD_SOFT, textAlign:"start", cursor:"pointer"}}>
+                <div style={{display:"flex", alignItems:"center", gap:8, marginBottom:8}}>
+                  <Building2 size={18} color={GOLD}/>
+                  <span style={{fontWeight:800, fontSize:14}}>المنظمات</span>
+                  <span style={{background:`${GOLD}22`, color:GOLD, fontSize:10, padding:"2px 6px", borderRadius:999, marginInlineStart:"auto"}}>{allOrgs.length}</span>
+                </div>
+                <div style={{fontSize:11, color:MUTED}}>إدارة الشركات والمؤسسات - كل منظمة فيها يوزرز واشتراكات برامج</div>
+                <div style={{marginTop:10, fontSize:11, color:GOLD, fontWeight:700}}>فتح الإدارة ←</div>
               </button>
-              <button className="btn" onClick={()=>setShowUsersManagement(true)} style={{background:`${GOLD}22`, border:`1px solid ${GOLD}`, color:GOLD, borderRadius:9, padding:"6px 10px", fontSize:11, fontWeight:700, display:"flex", alignItems:"center", gap:5}}>
-                <User size={13}/> يوزرز ({allUsers.length})
-              </button>
-              <button className="btn" onClick={()=>setShowProgramsManagement(true)} style={{background:`${TEAL}22`, border:`1px solid ${TEAL}`, color:TEAL, borderRadius:9, padding:"6px 10px", fontSize:11, fontWeight:700, display:"flex", alignItems:"center", gap:5}}>
-                🧩 برامج ({allPrograms.length})
-              </button>
-            </div>
-          )}
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                    <button
-            className="btn"
-            onClick={() => setLang((l) => (l === "ar" ? "en" : "ar"))}
-            style={{ background: CARD_SOFT, color: PAPER, border: `1px solid ${LINE}`, borderRadius: 9, padding: "8px 13px", fontWeight: 700, display: "flex", alignItems: "center", gap: 6 }}
-          >
-            <Languages size={14} color={GOLD} /> {t("langToggle")}
-          </button>
-          {toast && (
-            <div style={{ background: CARD_SOFT, border: `1px solid ${GOLD}`, borderRadius: 10, padding: "8px 14px", fontSize: 13, display: "flex", alignItems: "center", gap: 6 }}>
-              <Check size={14} color={GOLD} /> {toast}
-            </div>
-          )}
-        </div>
-      </div>
 
-      
+              {/* Users Card */}
+              <button className="card" onClick={()=>{
+                setShowBousalaSettings(false);
+                setShowUsersManagement(true);
+              }} style={{padding:16, border:`1px solid ${TEAL}`, background:CARD_SOFT, textAlign:"start", cursor:"pointer"}}>
+                <div style={{display:"flex", alignItems:"center", gap:8, marginBottom:8}}>
+                  <Users size={18} color={TEAL}/>
+                  <span style={{fontWeight:800, fontSize:14}}>المستخدمين</span>
+                  <span style={{background:`${TEAL}22`, color:TEAL, fontSize:10, padding:"2px 6px", borderRadius:999, marginInlineStart:"auto"}}>{allUsers.length}</span>
+                </div>
+                <div style={{fontSize:11, color:MUTED}}>إدارة اليوزرز - المدير بيشوف كل اليوزرز بنفس المنظمة، Super Admin بيشوف الكل</div>
+                <div style={{marginTop:10, fontSize:11, color:TEAL, fontWeight:700}}>فتح الإدارة ←</div>
+              </button>
+
+              {/* Programs Card */}
+              <button className="card" onClick={()=>{
+                setShowBousalaSettings(false);
+                setShowProgramsManagement(true);
+              }} style={{padding:16, border:`1px solid ${GOLD}`, background:CARD_SOFT, textAlign:"start", cursor:"pointer"}}>
+                <div style={{display:"flex", alignItems:"center", gap:8, marginBottom:8}}>
+                  <span style={{fontSize:18}}>🧩</span>
+                  <span style={{fontWeight:800, fontSize:14}}>البرامج (الموديولز)</span>
+                  <span style={{background:`${GOLD}22`, color:GOLD, fontSize:10, padding:"2px 6px", borderRadius:999, marginInlineStart:"auto"}}>{allPrograms.length}</span>
+                </div>
+                <div style={{fontSize:11, color:MUTED}}>إدارة مصاريف، مخزون، رواتب... كل منظمة بتشتري أكتر من برنامج</div>
+                <div style={{marginTop:10, fontSize:11, color:GOLD, fontWeight:700}}>فتح الإدارة ←</div>
+              </button>
+            </div>
+
+            <div style={{background:CARD, borderRadius:8, padding:10, border:`1px solid ${LINE}`}}>
+              <div style={{fontSize:11, fontWeight:700, color:MUTED}}>كيف النظام بشتغل:</div>
+              <div style={{fontSize:11, color:MUTED, marginTop:4, lineHeight:1.6}}>
+                • <b>بوصلة</b> هو الاسم العام للنظام<br/>
+                • كل <b>منظمة</b> (شركة) فيها يوزرز<br/>
+                • كل منظمة بتشتري <b>برامج</b> (إدارة مصاريف، إدارة مخزون...)<br/>
+                • <b>المدير</b> بنفس المنظمة بيشوف كلشي<br/>
+                • <b>Super Admin</b> بيشوف كل المنظمات واليوزرز
+              </div>
+            </div>
+          </div>
+        </Modal>
+      )}
+
       {/* Users Management - Super Admin Only - Shows user info without financial details */}
             {/* Users Management - Super Admin Only - Enhanced with full edit */}
       {showUsersManagement && (
@@ -3038,17 +3132,27 @@ export default function App() {
         </div>
       </div>
 
-      {/* Compact top actions - FIXED with logout button */}
-      <div style={{ maxWidth: 980, margin: "0 auto 18px", display: "flex", justifyContent: "flex-end", gap: 8, position: "relative" }}>
-        <button className="btn" onClick={logout} style={{ background: "#C1523B", color: "#fff", border: `1px solid #C1523B`, borderRadius: 9, padding: "8px 13px", fontWeight: 700, display: "flex", alignItems: "center", gap: 6 }}><LogOut size={14} /> {t("logout")}</button>
-        <button className="btn" onClick={() => setShowSettingsModal(true)} style={{ background: CARD_SOFT, color: PAPER, border: `1px solid ${LINE}`, borderRadius: 9, padding: "8px 13px", fontWeight: 700, display: "flex", alignItems: "center", gap: 6 }}><Settings size={14} color={GOLD} /> {t("settingsButton")}</button>
-        <button className="btn" onClick={() => setShowExportMenu((v) => !v)} style={{ background: CARD_SOFT, color: PAPER, border: `1px solid ${LINE}`, borderRadius: 9, padding: "8px 13px", fontWeight: 700, display: "flex", alignItems: "center", gap: 6 }}><Download size={14} color={GOLD} /> {t("exportMenu")} <ChevronDown size={13} /></button>
-        {showExportMenu && <div style={{ position: "absolute", top: 43, insetInlineEnd: 0, zIndex: 50, background: CARD, border: `1px solid ${LINE}`, borderRadius: 10, padding: 7, minWidth: 190, boxShadow: "0 14px 30px #0008" }}>
-          <button className="btn" onClick={() => { exportJSON(); setShowExportMenu(false); }} style={menuBtnStyle}><Download size={14} /> {t("exportJsonBtn")}</button>
-          <button className="btn" onClick={() => { exportExcel(); setShowExportMenu(false); }} style={menuBtnStyle}><Download size={14} /> {t("exportExcelBtn")}</button>
-          <button className="btn" onClick={() => { fileInputRef.current && fileInputRef.current.click(); setShowExportMenu(false); }} style={menuBtnStyle}><Upload size={14} /> {t("importJsonBtn")}</button>
-        </div>}
-        <input ref={fileInputRef} type="file" accept="application/json" onChange={handleImportFileChange} style={{ display: "none" }} />
+      {/* Compact top actions - NEW: My Org Settings + Export - صغير ومرتب */}
+      <div style={{ maxWidth: 980, margin: "0 auto 12px", display: "flex", justifyContent: "space-between", alignItems:"center", gap: 8, position: "relative" }}>
+        <div style={{ display:"flex", gap:6 }}>
+          <button className="btn" onClick={() => setShowSettingsModal(true)} style={{ background: CARD_SOFT, border: `1px solid ${LINE}`, color: PAPER, borderRadius: 8, padding: "6px 10px", fontSize:11, fontWeight:700, display:"flex", alignItems:"center", gap:5 }}>
+            <SlidersHorizontal size={12} color={TEAL}/> إعدادات منظمتي
+          </button>
+          <button className="btn" onClick={() => setShowSettingsModal(true)} style={{ background: CARD_SOFT, border: `1px solid ${LINE}`, color: PAPER, borderRadius: 8, padding: "6px 10px", fontSize:11, fontWeight:700, display:"flex", alignItems:"center", gap:5 }}>
+            <Settings size={12} color={GOLD} /> {t("settingsButton")}
+          </button>
+        </div>
+        <div style={{ display:"flex", gap:6, position:"relative" }}>
+          <button className="btn" onClick={() => setShowExportMenu((v) => !v)} style={{ background: CARD_SOFT, border: `1px solid ${LINE}`, color: PAPER, borderRadius: 8, padding: "6px 10px", fontSize:11, fontWeight:700, display:"flex", alignItems:"center", gap:5 }}>
+            <Download size={12} color={MUTED} /> {t("exportMenu")} <ChevronDown size={10} />
+          </button>
+          {showExportMenu && <div style={{ position: "absolute", top: 32, insetInlineEnd: 0, zIndex: 50, background: CARD, border: `1px solid ${LINE}`, borderRadius: 10, padding: 6, minWidth: 170, boxShadow: "0 14px 30px #0008" }}>
+            <button className="btn" onClick={() => { exportJSON(); setShowExportMenu(false); }} style={{...menuBtnStyle, fontSize:11}}><Download size={12} /> {t("exportJsonBtn")}</button>
+            <button className="btn" onClick={() => { exportExcel(); setShowExportMenu(false); }} style={{...menuBtnStyle, fontSize:11}}><Download size={12} /> {t("exportExcelBtn")}</button>
+            <button className="btn" onClick={() => { fileInputRef.current && fileInputRef.current.click(); setShowExportMenu(false); }} style={{...menuBtnStyle, fontSize:11}}><Upload size={12} /> {t("importJsonBtn")}</button>
+          </div>}
+          <input ref={fileInputRef} type="file" accept="application/json" onChange={handleImportFileChange} style={{ display: "none" }} />
+        </div>
       </div>
 
       <div style={{ maxWidth: 980, margin: "0 auto", display: "grid", gridTemplateColumns: "1fr", gap: 18 }}>
