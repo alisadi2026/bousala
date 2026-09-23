@@ -1,6 +1,14 @@
-import { getSupabase, cors } from './_lib.js';
+import { createClient } from '@supabase/supabase-js';
+function getSupabase() {
+  const url = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || 'https://hhuoqsambeoedxumamli.supabase.co';
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!key) return null;
+  return createClient(url, key);
+}
 export default async function handler(req, res) {
-  cors(res);
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   if (req.method === 'OPTIONS') return res.status(200).end();
   const supabase = getSupabase();
   const token = (req.headers.authorization || '').replace('Bearer ', '');
