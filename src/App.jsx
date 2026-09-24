@@ -1064,6 +1064,9 @@ export default function App() {
   const [allPrograms, setAllPrograms] = useState([]);
   const [showProgramsManagement, setShowProgramsManagement] = useState(false);
   const [programForm, setProgramForm] = useState({ slug: '', name: '', description: '', icon: '📦', color: '#C9A24B', route: '', sort_order: 0, editingId: null });
+  const [newUserForm, setNewUserForm] = useState({ email: '', password: '123456', full_name: '', is_super_admin: false });
+  const [newOrgForm, setNewOrgForm] = useState({ name: '' });
+  const [linkForm, setLinkForm] = useState({ user_id: '', org_id: '', role: 'member', program_ids: [] });
   const [programAssignments, setProgramAssignments] = useState({});
   const [orgName, setOrgName] = useState("");
   const [loadingData, setLoadingData] = useState(true);
@@ -1319,7 +1322,7 @@ export default function App() {
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [showAddEntryModal, setShowAddEntryModal] = useState(false);
   const [showPayModal, setShowPayModal] = useState(false);
-  const [showDetailsSection, setShowDetailsSection] = useState(false);
+  const [showDetailsSection, setShowDetailsSection] = useState(true);
   const [financialDetail, setFinancialDetail] = useState(null);
   const [showRecentModal, setShowRecentModal] = useState(false);
   const [fixedDetailId, setFixedDetailId] = useState(null);
@@ -2917,7 +2920,83 @@ export default function App() {
         </Modal>
       )}
 
-      {/* Users Management - Super Admin Only - Shows user info without financial details */}
+
+      {/* Org Settings - إعدادات منظمتي - لكل يوزر */}
+      {showOrgSettings && (
+        <Modal title="🏢 إعدادات منظمتي - أعضاء واشتراكات" onClose={()=>setShowOrgSettings(false)} dir={dir}>
+          <div style={{display:"flex", flexDirection:"column", gap:16}}>
+            <div style={{background:`${GOLD}0A`, border:`1px solid ${GOLD}33`, borderRadius:10, padding:12}}>
+              <div style={{fontWeight:800, fontSize:14}}>{orgName} - {currentOrgId?.slice(0,8)}</div>
+              <div style={{fontSize:11, color:MUTED, marginTop:4}}>هنا تتحكم بأعضاء هذه المنظمة وبرامجها المشتركة</div>
+            </div>
+            
+            <div>
+              <div style={{fontWeight:700, fontSize:13, marginBottom:8, display:"flex", alignItems:"center", gap:6}}><Users size={14}/> أعضاء المنظمة الحالية</div>
+              <div style={{display:"grid", gap:6, maxHeight:200, overflowY:"auto"}}>
+                {(orgMembersDetailed.find(o=>o.id===currentOrgId)?.members || []).map(m=>(
+                  <div key={m.user_id} style={{display:"flex", justifyContent:"space-between", alignItems:"center", background:CARD_SOFT, padding:"8px 10px", borderRadius:8}}>
+                    <span style={{fontSize:12}}>{m.user?.full_name||m.user?.username||m.user_id.slice(0,6)} - {m.role}</span>
+                    <button className="btn" onClick={async()=>{
+                      if(!confirm('حذف العضو من المنظمة؟')) return;
+                      await supabase.from('organization_members').delete().eq('user_id', m.user_id).eq('organization_id', currentOrgId);
+                      showToast('تم الحذف');
+                      const { data: members } = await supabase.from('organization_members').select('*, user:profiles(id, username, full_name)');
+                      const detailed = allOrgs.map(org=>{
+                        const orgMembers = (members||[]).filter(x=>x.organization_id===org.id);
+                        return { ...org, members: orgMembers, memberCount: orgMembers.length };
+                      });
+                      setOrgMembersDetailed(detailed);
+                    }} style={{background:`${RED}15`, color:RED, borderRadius:6, padding:"4px 8px", fontSize:10}}>حذف</button>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div style={{background:CARD_SOFT, borderRadius:10, padding:12}}>
+              <div style={{fontWeight:700, fontSize:12, marginBottom:8}}>➕ إضافة عضو للمنظمة</div>
+              <div style={{display:"grid", gridTemplateColumns:"1fr 120px 80px", gap:8}}>
+                <select className="field" value={linkForm.user_id} onChange={e=>setLinkForm({...linkForm, user_id: e.target.value})}>
+                  <option value="">اختر يوزر</option>
+                  {allUsers.map(u=><option key={u.id} value={u.id}>{u.email||u.username} - {u.full_name}</option>)}
+                </select>
+                <select className="field" value={linkForm.role} onChange={e=>setLinkForm({...linkForm, role: e.target.value})}>
+                  <option value="member">member</option>
+                  <option value="admin">admin</option>
+                  <option value="owner">owner</option>
+                </select>
+                <button className="btn" onClick={async()=>{
+                  if(!linkForm.user_id) return showToast('اختر يوزر');
+                  const { error } = await supabase.from('organization_members').insert({ organization_id: currentOrgId, user_id: linkForm.user_id, role: linkForm.role });
+                  if(error) return showToast(error.message);
+                  showToast('✅ تمت الإضافة');
+                  setLinkForm({...linkForm, user_id: ''});
+                  // refresh
+                  const { data: members } = await supabase.from('organization_members').select('*, user:profiles(id, username, full_name)');
+                  const detailed = allOrgs.map(org=>{
+                    const orgMembers = (members||[]).filter(x=>x.organization_id===org.id);
+                    return { ...org, members: orgMembers, memberCount: orgMembers.length };
+                  });
+                  setOrgMembersDetailed(detailed);
+                }} style={{background:GOLD, color:INK, borderRadius:8, fontWeight:700}}>إضافة</button>
+              </div>
+            </div>
+
+            <div style={{background:CARD_SOFT, borderRadius:10, padding:12}}>
+              <div style={{fontWeight:700, fontSize:12, marginBottom:8}}>📦 برامج المنظمة</div>
+              <div style={{display:"flex", flexWrap:"wrap", gap:8}}>
+                {allPrograms.map(p=>{
+                  const hasSub = orgMembersDetailed.find(o=>o.id===currentOrgId)?.programIds?.includes(p.id) || false;
+                  return <span key={p.id} style={{background: CARD, border:`1px solid ${LINE}`, padding:"4px 8px", borderRadius:999, fontSize:11}}>{p.icon} {p.name}</span>
+                })}
+                {allPrograms.length===0 && <span style={{fontSize:11, color:MUTED}}>لا يوجد برامج - أنشئ من إعدادات بوصلة</span>}
+              </div>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+
+            {/* Users Management - Super Admin Only - Shows user info without financial details */}
             {/* Users Management - Super Admin Only - Enhanced with full edit */}
       {showUsersManagement && (
         <Modal title="إدارة المستخدمين - Super Admin (كامل)" onClose={()=>setShowUsersManagement(false)} dir={dir}>
@@ -2953,6 +3032,54 @@ export default function App() {
               </div>
               <div style={{fontSize:11, color:MUTED}}>يعرض: الإيميل الكامل، اسم المستخدم، الاسم الكامل، تاريخ الإنشاء، آخر دخول، عدد المنظمات، حالة التأكيد - بدون تفاصيل مالية - مع إمكانية التعديل</div>
             </div>
+
+            <div style={{background:`${TEAL}0A`, border:`1px solid ${TEAL}33`, borderRadius:10, padding:12}}>
+              <div style={{fontWeight:800, fontSize:13, marginBottom:10, display:"flex", alignItems:"center", gap:6}}>➕ إنشاء يوزر جديد (كل الحقول فاضية)</div>
+              <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:8}}>
+                <div><Label>الإيميل *</Label><input className="field" value={newUserForm.email} onChange={e=>setNewUserForm({...newUserForm, email: e.target.value})} placeholder="new@example.com"/></div>
+                <div><Label>كلمة المرور *</Label><input className="field" type="text" value={newUserForm.password} onChange={e=>setNewUserForm({...newUserForm, password: e.target.value})} placeholder="123456"/></div>
+                <div><Label>الاسم الكامل</Label><input className="field" value={newUserForm.full_name} onChange={e=>setNewUserForm({...newUserForm, full_name: e.target.value})} placeholder="Ali Ahmed"/></div>
+                <div style={{display:"flex", alignItems:"center", gap:8, paddingTop:22}}><input type="checkbox" checked={newUserForm.is_super_admin} onChange={e=>setNewUserForm({...newUserForm, is_super_admin: e.target.checked})}/><span style={{fontSize:12}}>Super Admin</span></div>
+              </div>
+              <button className="btn" onClick={async()=>{
+                if(!newUserForm.email || !newUserForm.password) return showToast('الإيميل والباسورد مطلوبين');
+                try {
+                  const { data, error } = await supabase.rpc('create_user_independent', { p_email: newUserForm.email, p_password: newUserForm.password, p_full_name: newUserForm.full_name||null, p_username: newUserForm.email.split('@')[0], p_is_super_admin: newUserForm.is_super_admin });
+                  if(error) throw error;
+                  showToast('✅ تم إنشاء اليوزر: ' + newUserForm.email);
+                  setNewUserForm({ email: '', password: '123456', full_name: '', is_super_admin: false });
+                  // refresh
+                  const { data: profiles } = await supabase.from('profiles').select('*').order('created_at', {ascending:false});
+                  setAllUsers(profiles||[]);
+                } catch(err){ showToast('❌ '+err.message); }
+              }} style={{background:TEAL, color:INK, borderRadius:8, padding:"8px 16px", fontWeight:800, marginTop:10}}>إنشاء اليوزر</button>
+              <div style={{fontSize:10, color:MUTED, marginTop:6}}>💡 سيتم إنشاء اليوزر مع كل الحقول فاضية - بدون منظمة - اربطه بعدين بالمنظمة من الأسفل</div>
+            </div>
+
+            <div style={{background:`${GOLD}0A`, border:`1px solid ${GOLD}33`, borderRadius:10, padding:12}}>
+              <div style={{fontWeight:800, fontSize:12, marginBottom:8}}>🔗 ربط يوزر بمنظمة وبرامج</div>
+              <div style={{display:"grid", gridTemplateColumns:"1fr 1fr 100px", gap:8}}>
+                <select className="field" value={linkForm.user_id} onChange={e=>setLinkForm({...linkForm, user_id: e.target.value})}>
+                  <option value="">اختر اليوزر</option>
+                  {allUsers.map(u=><option key={u.id} value={u.id}>{u.email||u.username}</option>)}
+                </select>
+                <select className="field" value={linkForm.org_id} onChange={e=>setLinkForm({...linkForm, org_id: e.target.value})}>
+                  <option value="">اختر المنظمة</option>
+                  {allOrgs.map(o=><option key={o.id} value={o.id}>{o.name}</option>)}
+                </select>
+                <select className="field" value={linkForm.role} onChange={e=>setLinkForm({...linkForm, role: e.target.value})}>
+                  <option value="member">member</option><option value="admin">admin</option><option value="owner">owner</option>
+                </select>
+              </div>
+              <button className="btn" onClick={async()=>{
+                if(!linkForm.user_id || !linkForm.org_id) return showToast('اختر اليوزر والمنظمة');
+                const { error } = await supabase.from('organization_members').insert({ user_id: linkForm.user_id, organization_id: linkForm.org_id, role: linkForm.role });
+                if(error) return showToast(error.message);
+                showToast('✅ تم الربط');
+                setLinkForm({...linkForm, user_id:'', org_id:''});
+              }} style={{background:GOLD, color:INK, borderRadius:8, padding:"8px 16px", fontWeight:800, marginTop:8}}>ربط</button>
+            </div>
+
             
             <div style={{display:"grid", gap:10, maxHeight:"65vh", overflowY:"auto"}}>
               {allUsers.map(u=>{
@@ -3092,6 +3219,24 @@ export default function App() {
               </div>
               <div style={{fontSize:11, color:MUTED, marginTop:4}}>أفضل هيكل: منظمات - تحتها حسابات رئيسية (Owner/Admin) - تحتها حسابات عادية (Member) - يوزر واحد مالك منظمتين - كلشي بيحفظ في DB</div>
             </div>
+
+            <div style={{background:`${TEAL}0A`, border:`1px solid ${TEAL}33`, borderRadius:10, padding:12}}>
+              <div style={{fontWeight:800, fontSize:13, marginBottom:8}}>➕ إنشاء منظمة جديدة (فارغة - كل الحقول فاضية)</div>
+              <div style={{display:"flex", gap:8}}>
+                <input className="field" value={newOrgForm.name} onChange={e=>setNewOrgForm({name: e.target.value})} placeholder="اسم المنظمة - مثال: شركة التقنية"/>
+                <button className="btn" onClick={async()=>{
+                  if(!newOrgForm.name.trim()) return showToast('ادخل اسم المنظمة');
+                  const { data, error } = await supabase.from('organizations').insert({ name: newOrgForm.name.trim() }).select().single();
+                  if(error) return showToast(error.message);
+                  showToast('✅ تم إنشاء المنظمة: '+data.name);
+                  setNewOrgForm({name:''});
+                  setAllOrgs(prev=>[...prev, data]);
+                  setOrgMembersDetailed(prev=>[...prev, {...data, members:[], memberCount:0}]);
+                }} style={{background:TEAL, color:INK, borderRadius:8, padding:"8px 16px", fontWeight:800}}>إنشاء منظمة فارغة</button>
+              </div>
+              <div style={{fontSize:10, color:MUTED, marginTop:6}}>💡 المنظمة الجديدة بتكون فاضية تماما - بدون مصاريف، بدون أولاد، بدون حركات - كل الجداول فاضية</div>
+            </div>
+
             <div style={{display:"grid", gap:12, maxHeight:"65vh", overflowY:"auto"}}>
               {orgMembersDetailed.map(org=>{
                 const owners = org.members?.filter(m=>m.role==='owner') || [];
@@ -3116,9 +3261,50 @@ export default function App() {
       )}
 
       {showProgramsManagement && (
-        <Modal title="إدارة البرامج - أفضل - كلشي بيحفظ في DB" onClose={()=>setShowProgramsManagement(false)} dir={dir}>
-          <div>البرامج ({allPrograms.length}) - أفضل - كلشي بيحفظ في DB</div>
-          {allPrograms.map(p=><div key={p.id} className="card" style={{padding:10, marginTop:8}}>{p.icon} {p.name} ({p.slug}) {p.is_active?'✅':'❌'}</div>)}
+        <Modal title="إدارة البرامج - إضافة وربط بالمنظمات" onClose={()=>setShowProgramsManagement(false)} dir={dir}>
+          <div style={{display:"flex", flexDirection:"column", gap:14}}>
+            <div style={{background:`${GOLD}0A`, border:`1px solid ${GOLD}33`, borderRadius:10, padding:12}}>
+              <div style={{fontWeight:800, fontSize:13, marginBottom:8}}>➕ إضافة برنامج جديد</div>
+              <div style={{display:"grid", gridTemplateColumns:"1fr 1fr 80px 80px", gap:8}}>
+                <input className="field" value={programForm.slug} onChange={e=>setProgramForm({...programForm, slug: e.target.value})} placeholder="slug - مثلا: inventory"/>
+                <input className="field" value={programForm.name} onChange={e=>setProgramForm({...programForm, name: e.target.value})} placeholder="اسم البرنامج - إدارة المخزون"/>
+                <input className="field" value={programForm.icon} onChange={e=>setProgramForm({...programForm, icon: e.target.value})} placeholder="🧩"/>
+                <input className="field" value={programForm.color} onChange={e=>setProgramForm({...programForm, color: e.target.value})} placeholder="#C9A24B"/>
+              </div>
+              <button className="btn" onClick={async()=>{
+                if(!programForm.slug || !programForm.name) return showToast('slug و name مطلوبين');
+                const { data, error } = await supabase.from('programs').insert({ slug: programForm.slug, name: programForm.name, description: programForm.description, icon: programForm.icon||'📦', color: programForm.color||'#C9A24B', is_active: true, sort_order: allPrograms.length }).select().single();
+                if(error) return showToast(error.message);
+                showToast('✅ تم إنشاء البرنامج');
+                setAllPrograms(prev=>[...prev, data]);
+                setProgramForm({ slug: '', name: '', description: '', icon: '📦', color: '#C9A24B', route: '', sort_order: 0, editingId: null });
+              }} style={{background:GOLD, color:INK, borderRadius:8, padding:"8px 16px", fontWeight:800, marginTop:8}}>إنشاء برنامج</button>
+            </div>
+            
+            <div style={{display:"grid", gap:8, maxHeight:300, overflowY:"auto"}}>
+              {allPrograms.map(p=><div key={p.id} className="card" style={{padding:10, display:"flex", justifyContent:"space-between", alignItems:"center"}}><span>{p.icon} {p.name} ({p.slug}) {p.is_active?'✅':'❌'}</span><button className="btn" onClick={async()=>{await supabase.from('programs').delete().eq('id', p.id); setAllPrograms(prev=>prev.filter(x=>x.id!==p.id)); showToast('تم الحذف');}} style={{background:`${RED}15`, color:RED, borderRadius:6, padding:"4px 8px", fontSize:10}}>حذف</button></div>)}
+            </div>
+
+            <div style={{background:CARD_SOFT, borderRadius:10, padding:12}}>
+              <div style={{fontWeight:700, fontSize:12, marginBottom:8}}>🔗 ربط برنامج بمنظمة</div>
+              <div style={{display:"grid", gridTemplateColumns:"1fr 1fr 80px", gap:8}}>
+                <select className="field" value={linkForm.org_id} onChange={e=>setLinkForm({...linkForm, org_id: e.target.value})}>
+                  <option value="">اختر المنظمة</option>
+                  {allOrgs.map(o=><option key={o.id} value={o.id}>{o.name}</option>)}
+                </select>
+                <select className="field" multiple value={linkForm.program_ids} onChange={e=>setLinkForm({...linkForm, program_ids: Array.from(e.target.selectedOptions, o=>o.value)})} style={{height:60}}>
+                  {allPrograms.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
+                </select>
+                <button className="btn" onClick={async()=>{
+                  if(!linkForm.org_id || linkForm.program_ids.length===0) return showToast('اختر المنظمة والبرامج');
+                  for(const pid of linkForm.program_ids){
+                    await supabase.from('organization_subscriptions').insert({ organization_id: linkForm.org_id, program_id: pid }).select();
+                  }
+                  showToast('✅ تم ربط البرامج');
+                }} style={{background:GOLD, color:INK, borderRadius:8, fontWeight:700}}>ربط</button>
+              </div>
+            </div>
+          </div>
         </Modal>
       )}
 
@@ -3170,7 +3356,7 @@ export default function App() {
       {/* Compact top actions - NEW: My Org Settings + Export - صغير ومرتب */}
       <div style={{ maxWidth: 980, margin: "0 auto 12px", display: "flex", justifyContent: "space-between", alignItems:"center", gap: 8, position: "relative" }}>
         <div style={{ display:"flex", gap:6 }}>
-          <button className="btn" onClick={() => setShowSettingsModal(true)} style={{ background: CARD_SOFT, border: `1px solid ${LINE}`, color: PAPER, borderRadius: 8, padding: "6px 10px", fontSize:11, fontWeight:700, display:"flex", alignItems:"center", gap:5 }}>
+          <button className="btn" onClick={() => setShowOrgSettings(true)} style={{ background: CARD_SOFT, border: `1px solid ${LINE}`, color: PAPER, borderRadius: 8, padding: "6px 10px", fontSize:11, fontWeight:700, display:"flex", alignItems:"center", gap:5 }}>
             <SlidersHorizontal size={12} color={TEAL}/> إعدادات منظمتي
           </button>
           <button className="btn" onClick={() => setShowSettingsModal(true)} style={{ background: CARD_SOFT, border: `1px solid ${LINE}`, color: PAPER, borderRadius: 8, padding: "6px 10px", fontSize:11, fontWeight:700, display:"flex", alignItems:"center", gap:5 }}>
