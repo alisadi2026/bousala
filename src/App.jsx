@@ -2770,10 +2770,13 @@ export default function App() {
                 <Settings size={12}/> إعدادات بوصلة
               </button>
             )}
-            <button className="btn" onClick={()=>{
+            <button className="btn" onClick={async()=>{
+              await logoutPortable();
               setSupabaseUser(null);
               localStorage.removeItem('bousala_org');
-              // removed signOut - portable
+              localStorage.removeItem('bousala_token');
+              localStorage.removeItem('bousala_user');
+              window.location.href='/';
             }} style={{ background: `${RED}15`, border:`1px solid ${RED}33`, color:RED, borderRadius:8, padding:"6px 10px", fontSize:11, fontWeight:700, display:"flex", alignItems:"center", gap:4 }}>
               <LogOut size={12}/> خروج
             </button>
