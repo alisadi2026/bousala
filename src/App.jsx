@@ -2998,8 +2998,6 @@ export default function App() {
                             try {
                               await supabase.from('organization_members').delete().eq('user_id', u.id);
                               await supabase.from('profiles').delete().eq('id', u.id);
-                              const { error } = await // // portable auth - delete handled via profiles table
-                              if (error) throw error;
                               setAllUsers(prev=>prev.filter(x=>x.id!==u.id));
                               showToast('تم الحذف (fallback)');
                             } catch (e2) {
