@@ -7,13 +7,68 @@ import * as XLSX from "xlsx";
 import { Plus, ClipboardPaste, Target, TrendingUp, Wallet, AlertTriangle, X, Check, Pencil, Baby, Clock, Bell, PiggyBank, BarChart3, Languages, Download, Upload, Settings, Search, ArrowUpDown, LogOut, ChevronDown, Eye, Link2, Lock, User, Users, SlidersHorizontal, Shield, Building2 } from "lucide-react";
 import { createClient } from "@supabase/supabase-js";
 
-// FIX LOGIN FLAKINESS - Vercel env vars fallback + debug
+// ============ PORTABLE AUTH - FULLY INDEPENDENT ============
+// No more supabase.auth - we use our own API + profiles.password_hash
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || "https://hhuoqsambeoedxumamli.supabase.co";
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || "";
-if (!import.meta.env.VITE_SUPABASE_URL || !import.meta.env.VITE_SUPABASE_ANON_KEY) {
-  console.warn("⚠️ VITE_SUPABASE_URL or ANON_KEY missing in Vercel! Using fallback. Set them in Vercel Settings > Environment Variables");
-}
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
+
+// Portable Auth helpers
+const TOKEN_KEY = 'bousala_token';
+const USER_KEY = 'bousala_user';
+function getToken() { return localStorage.getItem(TOKEN_KEY); }
+function getStoredUser() { try { return JSON.parse(localStorage.getItem(USER_KEY)||'null'); } catch { return null; } }
+
+async function loginPortable(email, password) {
+  const res = await fetch('/api/auth/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password })
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Login failed');
+  localStorage.setItem(TOKEN_KEY, data.token);
+  localStorage.setItem(USER_KEY, JSON.stringify(data.user));
+  return data;
+}
+async function registerPortable(email, password) {
+  const res = await fetch('/api/auth/register', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password })
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Register failed');
+  localStorage.setItem(TOKEN_KEY, data.token);
+  localStorage.setItem(USER_KEY, JSON.stringify(data.user));
+  return data;
+}
+async function mePortable() {
+  const token = getToken();
+  if (!token) return null;
+  const res = await fetch('/api/auth/me', { headers: { Authorization: `Bearer ${token}` } });
+  if (!res.ok) {
+    localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(USER_KEY);
+    return null;
+  }
+  const data = await res.json();
+  localStorage.setItem(USER_KEY, JSON.stringify(data.user));
+  return data.user;
+}
+async function logoutPortable() {
+  const token = getToken();
+  try {
+    await fetch('/api/auth/logout', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token })
+    });
+  } catch {}
+  localStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem(USER_KEY);
+  localStorage.removeItem('bousala_org');
+}
 
 // ---------- Supabase Client replaced storage ----------
 const storage = {
@@ -1269,88 +1324,67 @@ export default function App() {
   const [showRecentModal, setShowRecentModal] = useState(false);
   const [fixedDetailId, setFixedDetailId] = useState(null);
   const [showAllFixedDetails, setShowAllFixedDetails] = useState(false);
-  // ---------- Supabase Auth V2 ----------
+  // ---------- PORTABLE AUTH V2 - INDEPENDENT ----------
   async function hashPassword(v){ return v; }
   async function submitAuth() {
-    const email = loginUser.trim();
+    const email = loginUser.trim().toLowerCase();
     if (!email || !loginPassword) return setAuthError(t("authRequired"));
     setAuthError("");
     try {
       if (loginMode === "setup") {
         if (loginPassword.length < 6) return setAuthError("كلمة المرور 6 أحرف على الأقل");
         if (loginPassword !== loginPassword2) return setAuthError(t("authPasswordsMismatch"));
-        const { data, error } = await supabase.auth.signUp({ email, password: loginPassword });
-        if (error) return setAuthError(error.message);
-        if (data.user) {
-          await supabase.from('profiles').insert({ id: data.user.id, username: email.split('@')[0], full_name: email.split('@')[0] });
-          // Clear old org cache - important for same browser
-            localStorage.removeItem("bousala_org");
-            const { data: org } = await supabase.from('organizations').insert({ name: 'حسابي الشخصي', owner_id: data.user.id, created_by: data.user.id }).select().single();
-          if (org) {
-            await supabase.from('organization_members').insert({ organization_id: org.id, user_id: data.user.id, role: 'owner' });
-            const { data: prog } = await supabase.from('programs').select('id').eq('slug','bousala').single();
-            if (prog) await supabase.from('organization_subscriptions').insert({ organization_id: org.id, program_id: prog.id });
-            setCurrentOrgId(org.id);
-            localStorage.setItem("bousala_org", org.id);
-            setOrgName(org.name);
-            setAllOrgs([org]); // New user sees only his org initially
-            localStorage.setItem("bousala_org", org.id);
-          }
-          setSupabaseUser(data.user);
-          setIsAuthenticated(true);
-          showToast(t("authCreated"));
-        }
-      } else {
-        const { data, error } = await supabase.auth.signInWithPassword({ email, password: loginPassword });
-        if (error) return setAuthError(t("authInvalid") + ": " + error.message);
-        setSupabaseUser(data.user);
+        const { user } = await registerPortable(email, loginPassword);
+        setSupabaseUser(user);
         setIsAuthenticated(true);
+        localStorage.removeItem("bousala_org");
+        showToast(t("authCreated") || "تم انشاء الحساب");
+        const orgId = await fetchProfileAndOrg(user.id);
+        if (orgId) await fetchAllData(orgId);
+        else { setLoaded(true); setAuthReady(true); }
+      } else {
+        const { user } = await loginPortable(email, loginPassword);
+        setSupabaseUser(user);
+        setIsAuthenticated(true);
+        const orgId = await fetchProfileAndOrg(user.id);
+        if (orgId) await fetchAllData(orgId);
+        else { setLoaded(true); setAuthReady(true); }
       }
     } catch (e) { setAuthError(e.message); }
   }
   async function logout() {
-    await supabase.auth.signOut();
+    await logoutPortable();
     setIsAuthenticated(false);
     setSupabaseUser(null);
     setLoginPassword("");
     setShowSettingsModal(false);
     setShowExportMenu(false);
-    localStorage.removeItem("bousala_org");
     setCurrentOrgId(null);
   }
 
-
-  // ---------- Supabase Auth & Initial Load V2 ----------
+  // ---------- PORTABLE AUTH & Initial Load V2 ----------
   useEffect(() => {
     const init = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session?.user) {
-        setSupabaseUser(session.user);
-        setIsAuthenticated(true);
-        setLoginUser(session.user.email);
-        const orgId = await fetchProfileAndOrg(session.user.id);
-        if (orgId) await fetchAllData(orgId);
-        else { setLoaded(true); setAuthReady(true); }
-      } else {
+      try {
+        const user = await mePortable();
+        if (user) {
+          setSupabaseUser(user);
+          setIsAuthenticated(true);
+          setLoginUser(user.email);
+          const orgId = await fetchProfileAndOrg(user.id);
+          if (orgId) await fetchAllData(orgId);
+          else { setLoaded(true); setAuthReady(true); }
+        } else {
+          setAuthReady(true);
+          setLoaded(true);
+        }
+      } catch (e) {
+        console.warn("mePortable failed", e);
         setAuthReady(true);
         setLoaded(true);
       }
     };
     init();
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (session?.user) {
-        setSupabaseUser(session.user);
-        setIsAuthenticated(true);
-        setLoginUser(session.user.email);
-        const orgId = await fetchProfileAndOrg(session.user.id);
-        if (orgId) await fetchAllData(orgId);
-      } else {
-        setSupabaseUser(null);
-        setIsAuthenticated(false);
-        setAuthReady(true);
-      }
-    });
-    return () => subscription.unsubscribe();
   }, []);
 
   useEffect(() => {
@@ -2739,7 +2773,7 @@ export default function App() {
             <button className="btn" onClick={()=>{
               setSupabaseUser(null);
               localStorage.removeItem('bousala_org');
-              supabase.auth.signOut();
+              // removed signOut - portable
             }} style={{ background: `${RED}15`, border:`1px solid ${RED}33`, color:RED, borderRadius:8, padding:"6px 10px", fontSize:11, fontWeight:700, display:"flex", alignItems:"center", gap:4 }}>
               <LogOut size={12}/> خروج
             </button>
@@ -2964,7 +2998,7 @@ export default function App() {
                             try {
                               await supabase.from('organization_members').delete().eq('user_id', u.id);
                               await supabase.from('profiles').delete().eq('id', u.id);
-                              const { error } = await supabase.auth.admin.deleteUser(u.id);
+                              const { error } = await // // portable auth - delete handled via profiles table
                               if (error) throw error;
                               setAllUsers(prev=>prev.filter(x=>x.id!==u.id));
                               showToast('تم الحذف (fallback)');
